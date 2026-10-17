@@ -167,6 +167,7 @@ pub const Model = struct {
         m.* = undefined;
         m.gpa = gpa;
         if (std.c.getenv("TF_DS_REPLAY_FLOOR")) |v| prompt.replay_floor = std.mem.eql(u8, std.mem.span(v), "1"); // every rank alike
+        try prompt.splitEnv(); // TF_DS_IDX_SPLIT: every rank alike too
         m.spans = .empty;
         m.img_buf = null;
         m.host = std.heap.ArenaAllocator.init(gpa);
@@ -231,7 +232,7 @@ pub const Model = struct {
         // the ranks' link and NCCL (rank 0 listens: rank 1 retries its connect while rank 0 loads)
         m.fan = try prompt2d.Fan.open(io, o.master, o.port, o.rank, o.world);
         errdefer m.fan.close();
-        // every rank's streams, pool, round rows, rails, drafter and replay floor checked against rank 0's first
+        // every rank's streams, pool, round rows, rails, drafter, replay floor and indexer split checked against rank 0's
         m.comm = try m.fan.commChecked(o.rank, o.world, .{
             .world = o.world,
             .streams = @intCast(o.streams),
@@ -239,6 +240,7 @@ pub const Model = struct {
             .rails = if (o.rdma_devices) |list| @intCast(std.mem.count(u8, list, ",") + 1) else 0,
             .drafts = @intFromBool(o.drafts),
             .replay_floor = @intFromBool(prompt.replay_floor),
+            .idx_split = @intCast(prompt.split_from),
             .pool = o.pool,
         });
         errdefer m.comm.deinit();

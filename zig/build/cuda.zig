@@ -198,6 +198,12 @@ pub fn targets(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.bu
     ds_vit.addImport("dsv41", ds_check.import_table.get("dsv41").?);
     ds_vit.addImport("cuda", cuda);
     b.installArtifact(b.addExecutable(.{ .name = "tf-dsv41-vit", .root_module = ds_vit }));
+    // TF_DS_IDX_SPLIT's keyed selection, every node's part on one GPU and the merge, against the served one on
+    // synthetic index keys: every byte compared, the parts timed
+    const ds_split = b.createModule(.{ .root_source_file = b.path("zig/src/families/dsv41/split_bench_main.zig"), .target = target, .optimize = optimize, .link_libc = true });
+    ds_split.addImport("dsv41", ds_check.import_table.get("dsv41").?);
+    ds_split.addImport("cuda", cuda);
+    b.installArtifact(b.addExecutable(.{ .name = "tf-dsv41-split-bench", .root_module = ds_split }));
     // the 2D split's decode-size exchanges over the RDMA rings on four nodes, word for word against Comm2D's layout
     const ds_ring2d = b.createModule(.{ .root_source_file = b.path("zig/src/families/dsv41/ring2d_check_main.zig"), .target = target, .optimize = optimize, .link_libc = true });
     ds_ring2d.addImport("dsv41", ds_check.import_table.get("dsv41").?);

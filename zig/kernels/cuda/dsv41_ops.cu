@@ -561,3 +561,18 @@ extern "C" __global__ void tf_ds_assemble_rest_kernel(const uint4* part0, const 
     }
     for (int c = threadIdx.x; c < ir8; c += blockDim.x) o[2 * ig8 + c] = rest[c];
 }
+
+// TF_DS_IDX_SPLIT (idx_split.zig): a node's k largest keys of its columns [c0, c0 + n) as keys of the whole row, in
+// place. A key's low word is its inverted column (0xFFFFFFFF - j, j counted from c0); the row's is that word less c0,
+// at least 0xFFFFFFFF - (c0 + n - 1), so the score word above it stays as it was: the key the served scores hold at
+// column c0 + j. A low word of no column of the node's (j at or past n: a pad) stays too, as the served keys hold it.
+// keys [rows, k] int64 (row stride ld); grid (ceil(k / blockDim), rows).
+extern "C" __global__ void tf_ds_keys_rebase_kernel(long long* keys, long long ld, int k, long long n, long long c0) {
+    const long long r = blockIdx.y;
+    const int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= k) return;
+    long long* p = keys + r * ld + i;
+    const unsigned long long key = (unsigned long long)*p;
+    if (0xFFFFFFFFull - (key & 0xFFFFFFFFull) >= (unsigned long long)n) return;
+    *p = (long long)(key - (unsigned long long)c0);
+}

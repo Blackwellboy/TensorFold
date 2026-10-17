@@ -44,6 +44,7 @@ pub const Ops = struct {
     rest_group: cuda.Function,
     remap_picks: cuda.Function,
     assemble_rest: cuda.Function,
+    keys_rebase: cuda.Function,
 
     /// The three images (cuda.kernels.torch_pointwise, torch_movement and dsv41_ops, or the fatbins' bytes).
     pub fn load(d: *const cuda.Driver, pointwise: []const u8, movement: []const u8, family: []const u8) !Ops {
@@ -78,6 +79,7 @@ pub const Ops = struct {
             .rest_group = try fm.function("tf_ds_rest_group_kernel"),
             .remap_picks = try fm.function("tf_ds_remap_picks_kernel"),
             .assemble_rest = try fm.function("tf_ds_assemble_rest_kernel"),
+            .keys_rebase = try fm.function("tf_ds_keys_rebase_kernel"),
         };
     }
 
@@ -333,6 +335,20 @@ pub const Ops = struct {
         for ([_]u64{ part0, part1, pick, owner, out }) |v| a.add(v);
         for ([_]usize{ p, ig / 8, ir / 8 }) |v| a.add(@as(c_int, @intCast(v)));
         try go(o.assemble_rest, s, @intCast(p), 64, &a);
+    }
+
+    /// TF_DS_IDX_SPLIT (idx_split.zig), in place: a node's top keys [rows, k] int64 (row stride ld elements) of its
+    /// columns [c0, c0 + n) as keys of the whole row: each key of a column of the node's less c0 (its inverted column
+    /// the row's, its score word kept), a pad (a low word of no such column) as it was.
+    pub fn keysRebase(o: *const Ops, s: cuda.Stream, keys: u64, ld: usize, k: usize, n: usize, c0: usize, rows: usize) !void {
+        if (rows == 0 or k == 0) return;
+        var a: cuda.Args = .{};
+        a.add(keys);
+        a.add(@as(c_longlong, @intCast(ld)));
+        a.add(@as(c_int, @intCast(k)));
+        a.add(@as(c_longlong, @intCast(n)));
+        a.add(@as(c_longlong, @intCast(c0)));
+        try cuda.launch.launch(o.keys_rebase, .{ .grid = .{ .x = blocks(k, 256), .y = @intCast(rows) }, .block = .{ .x = 256 } }, s, &a);
     }
 
     /// The GPU clock (ns) into buf[i] when the stream reaches it (a profile).

@@ -142,7 +142,7 @@ pub const Settings = extern struct {
     rails: u32, // TF_RDMA_DEVICES (--rdma): as many devices (0: NCCL)
     drafts: u32, // the drafter (--drafts): the same
     replay_floor: u32, // TF_DS_REPLAY_FLOOR: the same
-    pad: u32 = 0,
+    idx_split: u32 = 0, // TF_DS_IDX_SPLIT (prompt.split_from): the same (the keyed indexer layers all-gather inside)
     pool: u64, // rank 0's --context (a follower's --pool): a follower's holds rank 0's
 
     pub const tag: u32 = 0x31345344; // "DS41"
@@ -165,6 +165,8 @@ pub const Settings = extern struct {
             w.print("{s}rank {d} {s} the drafter and rank 0 {s}: start rank {d} with --drafts {d}", .{ sepIf(&w, sep), rank, if (mine.drafts != 0) "loads" else "does not load", if (lead.drafts != 0) "does" else "does not", rank, lead.drafts }) catch {};
         if (mine.replay_floor != lead.replay_floor)
             w.print("{s}rank {d} has TF_DS_REPLAY_FLOOR={d} and rank 0 {d}: set the same on every rank", .{ sepIf(&w, sep), rank, mine.replay_floor, lead.replay_floor }) catch {};
+        if (mine.idx_split != lead.idx_split)
+            w.print("{s}rank {d} splits the keyed indexer rows from {d} columns and rank 0 from {d} (TF_DS_IDX_SPLIT, 0: unset): set the same on every rank", .{ sepIf(&w, sep), rank, mine.idx_split, lead.idx_split }) catch {};
         return w.buffered();
     }
 
@@ -436,6 +438,16 @@ test "a follower holds rank 0's streams and pool and runs its round rows, or say
     for ([_][]const u8{ "--pool 524288", "--round-rows 16", "--rdma", "--drafts 1", "TF_DS_REPLAY_FLOOR=0 and rank 0 1" }) |s|
         try std.testing.expect(std.mem.indexOf(u8, words, s) != null);
     try std.testing.expectEqual(@as(usize, 4), std.mem.count(u8, words, "; "));
+}
+
+test "a follower splits the keyed indexer rows as rank 0 does, or says to set the same" {
+    const served: Settings = .{ .world = 4, .streams = 16, .round_rows = 48, .rails = 2, .drafts = 1, .replay_floor = 0, .pool = 1 << 21 };
+    var buf: [1024]u8 = undefined;
+    var lead = served;
+    lead.idx_split = 32768;
+    try std.testing.expectEqualStrings("", lead.differ(lead, 2, &buf));
+    try std.testing.expectEqualStrings("rank 2 splits the keyed indexer rows from 0 columns and rank 0 from 32768 (TF_DS_IDX_SPLIT, 0: unset): set the same on every rank", served.differ(lead, 2, &buf));
+    try std.testing.expectEqual(@as(usize, 40), @sizeOf(Settings)); // rank 0's frame: as before (idx_split took the pad)
 }
 
 test "rank 0's settings go with NCCL's id: the follower answers, and an older rank 0's id alone is taken as before" {

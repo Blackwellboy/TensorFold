@@ -18,6 +18,9 @@
 //!                                               the same (the followers: --round-rows, --streams, or these variables):
 //!                                               a rank that differs from rank 0 stops at the start
 //!   TF_RDMA_DEVICES                             the decode gathers over the RDMA ring on these devices (else NCCL)
+//!   TF_DS_IDX_SPLIT=1                           the keyed indexer layers' rows of 32,768 columns or more split by
+//!                                               columns over the nodes (a larger number: from that many columns);
+//!                                               the same selections. Every rank the same, as TF_DS_ROUND_ROWS
 //!   TF_DS_GRAPHS=1                              the rounds' stretches as CUDA graphs
 //!   TF_DS_HC_SIDE=1                             the mixes' side work on a stream of its own
 //!   TF_DS_L2_PREFETCH=1                         the paced L2 prefetch of the next kernels' weights
@@ -188,7 +191,7 @@ pub fn explain(_: ?*anyopaque, err: anyerror) ?[]const u8 {
         error.BadRoundRows => "TF_DS_ROUND_ROWS: a round's rows at most, 16 .. 48",
         error.BadStreams => "TF_DS_STREAMS: the pool's streams, 1 .. 16",
         error.BadWindow => "TF_DS_WINDOW: the streams' shared positions, at least --context",
-        error.SettingsDiffer => "a follower rank runs other settings than this server (the line above says which): give every rank the same TF_DS_STREAMS (the followers: --streams), TF_DS_ROUND_ROWS (--round-rows), RDMA devices, drafter and TF_DS_REPLAY_FLOOR, and every follower a --pool of at least the window (--context, or TF_DS_WINDOW)",
+        error.SettingsDiffer => "a follower rank runs other settings than this server (the line above says which): give every rank the same TF_DS_STREAMS (the followers: --streams), TF_DS_ROUND_ROWS (--round-rows), RDMA devices, drafter, TF_DS_REPLAY_FLOOR and TF_DS_IDX_SPLIT, and every follower a --pool of at least the window (--context, or TF_DS_WINDOW)",
         error.ContextFull => "the streams' prompts and budgets fill the context's pool: lower max_tokens, or retry when a stream ends",
         error.PromptTooLong => "the prompt and its max_tokens do not fit the context window",
         error.NoVisionKit => "this checkpoint reads images: its kit (TF_DS_KIT) needs vision/torch_fmha_sm120.cubin and vision/gate_bias_vl.safetensors",

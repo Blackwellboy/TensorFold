@@ -136,6 +136,11 @@ pub fn topkSelect(t: Tri, keys: u64, ks: usize, k: usize, vis: u64, out: u64, to
     if (pow2(n) and pow2(k) and k <= n and n <= topk_fused_max and (ks == n or rows <= 1)) {
         return t.run("_topk_sel", .{ u(rows), 1, 1 }, &.{ p("KEYS", "*i64", keys), p("VIS", "*i64", vis), p("OUT", "*i64", out) }, &.{ ci("N", n), ci("KK", k), t.pdlConst() });
     }
+    try topkSelectTorch(t, keys, ks, k, vis, out, top, rows, n);
+}
+
+/// topk_select's steps past the fused selection, whatever n: torch's top-k into top.top, then _topk_finish.
+pub fn topkSelectTorch(t: Tri, keys: u64, ks: usize, k: usize, vis: u64, out: u64, top: TopK, rows: usize, n: usize) !void {
     try top.run(top.ctx, t, keys, ks, rows, n, k, top.top);
     try t.run("_topk_finish", .{ u(rows), 1, 1 }, &.{ p("TOP", "*i64", top.top), p("VIS", "*i64", vis), p("OUT", "*i64", out) }, &.{ ci("KK", k), t.pdlConst() });
 }
@@ -153,12 +158,26 @@ pub const PrunedBufs = struct { tpos: u64, cand: u64, every: u64 };
 pub fn topkSelectPruned(t: Tri, keys: u64, ks: usize, tmax: u64, k: usize, vis: u64, out: u64, bufs: PrunedBufs, top: TopK, rows: usize, n: usize) !void {
     // kernels.py also falls back to topk_select when keys.stride(1) != 1: every caller's keys have unit column stride
     if (!prunes(n, k)) return topkSelect(t, keys, ks, k, vis, out, top, rows, n);
+    try leadTiles(t, keys, ks, tmax, k, bufs, top, rows, n);
+    try topkSelect(t, bufs.cand, k * tile, k, vis, out, top, rows, k * tile);
+}
+
+/// topk_select_pruned's tile step: the k tiles whose maxima tmax are largest (tpos), their keys into cand [R, k * 64].
+fn leadTiles(t: Tri, keys: u64, ks: usize, tmax: u64, k: usize, bufs: PrunedBufs, top: TopK, rows: usize, n: usize) !void {
     const nt = tri.cdiv(n, tile);
     try topkSelect(t, tmax, nt, k, bufs.every, bufs.tpos, top, rows, nt);
     try t.run("_gather_tiles", .{ u(rows), u(k), 1 }, &.{
         p("KEYS", "*i64", keys), p("TPOS", "*i64", bufs.tpos), p("OUT", "*i64", bufs.cand), int("n", n), int("ks", ks),
     }, &.{ ci("BN", tile), ci("KK", k), t.pdlConst() });
-    try topkSelect(t, bufs.cand, k * tile, k, vis, out, top, rows, k * tile);
+}
+
+/// TF_DS_IDX_SPLIT (idx_split.zig): topk_select_pruned's k largest keys themselves, not their columns: the tile step,
+/// then torch's top-k of the k tiles' keys into out [R, k] (rows k apart, the set in no particular order); torch's
+/// top-k of every key when n does not prune. The same k keys topk_select_pruned takes its columns from.
+pub fn topKeysPruned(t: Tri, keys: u64, ks: usize, tmax: u64, k: usize, out: u64, bufs: PrunedBufs, top: TopK, rows: usize, n: usize) !void {
+    if (!prunes(n, k)) return top.run(top.ctx, t, keys, ks, rows, n, k, out);
+    try leadTiles(t, keys, ks, tmax, k, bufs, top, rows, n);
+    try top.run(top.ctx, t, bufs.cand, k * tile, rows, k * tile, k, out);
 }
 
 /// score_keys: fp32 scores [R, n] (contiguous) -> out [R, n] int64 keys; tmax: each 64-key tile's largest [R, cdiv(n, 64)].

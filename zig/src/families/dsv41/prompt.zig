@@ -31,6 +31,7 @@ const engram_io = @import("engram_io.zig");
 const engram_aio = @import("engram_aio.zig");
 const exact = @import("exact.zig");
 const tri_index = @import("tri_index.zig");
+const idx_split = @import("idx_split.zig");
 const exl3_linear = @import("exl3_linear.zig");
 const prompt2d = @import("prompt2d.zig");
 const rdma = @import("rdma.zig");
@@ -228,6 +229,11 @@ pub const Chunk = struct {
     pidx: u64 = 0,
     every: u64 = 0,
     pbufs: tri_index.PrunedBufs = .{ .tpos = 0, .cand = 0, .every = 0 },
+    // TF_DS_IDX_SPLIT (idx_split.zig): this node's k largest keys of its columns (int64 [cap, index_topk]) and its
+    // columns' vis (int64 [cap]); the all-gather and the merge take keys (key_cap elements)
+    split_top: u64 = 0,
+    split_vis: u64 = 0,
+    key_cap: usize = 0,
     // MoE
     xf: u64, // fp32 [cap, D]
     gate_f: u64, // fp32 [experts, D]
@@ -345,6 +351,7 @@ pub const Chunk = struct {
             // the indexer's row blocks keep rows * n_comp under 2^24 (model.py rb), so their keys under key_elems
             const ke: usize = @min(cap * ch.max_comp, key_elems); // (typed: @min with a comptime bound narrows)
             ch.keys = try a.take(ke * 8);
+            ch.key_cap = ke;
             ch.score = try a.take(ke * 4);
             ch.tmax = try a.take((ke / tri_index.tile + cap) * 8);
             ch.cidx = try a.take(cap * c.index_topk * 8);
@@ -368,6 +375,10 @@ pub const Chunk = struct {
             }
             if (tri_index.prunes(ch.max_comp, c.index_topk)) {
                 ch.pbufs = .{ .tpos = try a.take(pruned_rows * c.index_topk * 8), .cand = try a.take(pruned_rows * c.index_topk * tri_index.tile * 8), .every = ch.every };
+            }
+            if (split_from != 0 and ch.max_comp >= split_from and e.comm.world > 1) {
+                ch.split_top = try a.take(cap * c.index_topk * 8);
+                ch.split_vis = try a.take(cap * 8);
             }
         }
         for (e.w.layers) |lay| {
@@ -717,6 +728,20 @@ pub fn mm(e: *const Engine, ch: *const Chunk, l: weights.Linear, x: u64, ldx: us
 /// by the gather path (off: ring mode, as the served lane reads, the slot's previous request's keys below the floor).
 pub var replay_floor = false;
 
+/// TF_DS_IDX_SPLIT (idx_split.zig; model.zig and the layer gate set it on every rank, the ranks' settings check it): the
+/// keyed indexer layers' rows of at least this many columns split by columns over the run's nodes, the same columns
+/// out; 0: as served.
+pub var split_from: usize = 0;
+
+/// split_from from TF_DS_IDX_SPLIT: 1 from idx_split.default_min columns, a larger number from that many; unset or 0:
+/// as served.
+pub fn splitEnv() !void {
+    const v = std.c.getenv("TF_DS_IDX_SPLIT") orelse return;
+    const x = std.fmt.parseInt(usize, std.mem.span(v), 10) catch return error.BadIdxSplit;
+    split_from = if (x == 1) idx_split.default_min else x;
+    if (split_from != 0) std.log.info("the keyed indexer layers' rows of {d} columns or more split over the nodes (TF_DS_IDX_SPLIT)", .{split_from});
+}
+
 /// attention_k: the partial pa [n, D] fp32 of this rank's heads; the chunk's keys go into the layer's window ring
 /// (bf16 [window + RING_EXTRA, head_dim]). A compressed layer also attends to its kv source's latents the indexer picks
 /// (a kv source first compresses the chunk into them). `floor`: no window key before this position.
@@ -956,6 +981,15 @@ fn indexer(e: *const Engine, ch: *Chunk, cs: *const Caches, sh: *Shared, li: usi
     const k: tri_index.IndexK = .{ .fp4 = .{ .codes = cs.idx_codes[src], .scales = cs.idx_scales[src] } };
     const torch_topk: tri_index.TopK = .{ .top = ch.ktop, .ctx = @ptrCast(@constCast(e)), .run = torchTopk };
     if (keyed and tri_index.prunes(n_comp_end, kk) and (rb > pruned_rows or ch.pbufs.cand == 0)) return error.ChunkTooLong;
+    // TF_DS_IDX_SPLIT: a keyed layer's rows of split_from columns or more, each row seeing k of them, split by columns
+    // over the run's nodes in the same row blocks (idx_split.zig): the same k keys, so the same columns out
+    if (keyed and split_from != 0 and ch.split_top != 0 and n_comp_end >= @max(split_from, 2 * @as(usize, e.comm.world) * kk) and
+        (ch.start + 1) / @as(usize, lay.ratio) >= kk and 2 * @as(usize, e.comm.world) * n * kk <= ch.key_cap)
+    {
+        try splitKeyed(e, ch, k, n_comp_end, kk, lay.ratio, rb, torch_topk);
+        sh.kk = kk;
+        return;
+    }
     // the candidate source and the layers after it: fp32 scores, the pool (_candidates at the source, apply_candidates
     // after it), topk_indices and -1 past vis. While every block of the scores fits in the pool (cand_blocks of them)
     // the pool keeps each block with a finite score (the newest pinned: it holds the row's last visible key) and
@@ -995,6 +1029,23 @@ fn indexer(e: *const Engine, ch: *Chunk, cs: *const Caches, sh: *Shared, li: usi
     }
     if (pooled and li == c.candidate_source) sh.pool = true;
     sh.kk = kk;
+}
+
+/// TF_DS_IDX_SPLIT's keyed selection on this node (idx_split.zig): its columns' k largest keys a row in the served row
+/// blocks of rb rows, every node's over NCCL into ch.keys, and the k largest of those into cidx.
+fn splitKeyed(e: *const Engine, ch: *Chunk, k: tri_index.IndexK, n_comp_end: usize, kk: usize, ratio: usize, rb: usize, top: tri_index.TopK) !void {
+    const c = e.c;
+    const n = ch.n;
+    const world: usize = e.comm.world;
+    const sp = idx_split.span(n_comp_end, world, e.comm.rank);
+    // the node's vis (host-made, as vis: the same integers on every node)
+    var vis_host: [4096]i64 = undefined;
+    if (n > vis_host.len) return error.ChunkTooLong;
+    for (0..n) |i| vis_host[i] = idx_split.nodeVis((ch.start + i + 1) / ratio, sp);
+    try upload(e, ch.split_vis, &vis_host, n * 8);
+    try idx_split.nodeTop(e.t, e.ops, e.s, ch.iq4, k, ch.iw, ch.split_vis, ch.vis_blk, sp, ch.keys, ch.tmax, ch.pbufs, top, ch.split_top, n, rb, kk, c.index_heads, c.index_head_dim);
+    try e.comm.allGather(ch.split_top, ch.keys, n * kk, .i64, e.s);
+    try idx_split.merge(e.t, e.ops, e.s, ch.keys, ch.keys + world * n * kk * 8, world, n, kk, ch.vis, ch.cidx, top);
 }
 
 /// topk_select's torch step, keys.topk(k).values: the top-k set of the unique int64 keys (ops.topkI64).
