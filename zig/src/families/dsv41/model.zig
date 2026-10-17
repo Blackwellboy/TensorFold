@@ -231,7 +231,16 @@ pub const Model = struct {
         // the ranks' link and NCCL (rank 0 listens: rank 1 retries its connect while rank 0 loads)
         m.fan = try prompt2d.Fan.open(io, o.master, o.port, o.rank, o.world);
         errdefer m.fan.close();
-        m.comm = try m.fan.comm(o.rank, o.world);
+        // every rank's streams, pool, round rows, rails, drafter and replay floor checked against rank 0's first
+        m.comm = try m.fan.commChecked(o.rank, o.world, .{
+            .world = o.world,
+            .streams = @intCast(o.streams),
+            .round_rows = @intCast(o.round_rows),
+            .rails = if (o.rdma_devices) |list| @intCast(std.mem.count(u8, list, ",") + 1) else 0,
+            .drafts = @intFromBool(o.drafts),
+            .replay_floor = @intFromBool(prompt.replay_floor),
+            .pool = o.pool,
+        });
         errdefer m.comm.deinit();
         // TP2: the decode gathers' RDMA ring (both ranks connect before either returns)
         if (sp.pair == null and o.rdma_devices != null) {
