@@ -520,7 +520,7 @@ test "loop guard fires, closes thinking, and latches once" {
 const reference = @import("novelty.zig").reference;
 
 /// Commit `tokens` `batch` at a time as the lane core's rounds do, cut where loopCut cuts, until the guard fires or the
-/// stream finishes; how many landed.
+/// stream finishes; how many landed. With rounds of 7 or 50 a window ends inside a round: only loopCut ends it there.
 fn rounds(gpa: Allocator, s: *Stream, tokens: []const u32, batch: usize) !usize {
     var at: usize = 0;
     while (at < tokens.len and !s.finished and s.force.items.len == 0) {
@@ -583,7 +583,7 @@ test "the novelty signal fires where the Python guard does, a token or a round a
         .{ .tokens = d.items, .windows = 10, .want = .{ .at = 37887, .share = 2.0 / 1024.0 } },
         .{ .tokens = a.items, .windows = 0, .want = null }, // the exact-cycle check alone: a loop of 13 is no cycle
     };
-    for (cases) |case| for ([_]usize{ 1, 7, 48 }) |batch| {
+    for (cases) |case| for ([_]usize{ 1, 7, 50 }) |batch| {
         try std.testing.expectEqual(case.want, try novelFire(gpa, case.tokens, case.windows, batch));
     };
 }
@@ -597,11 +597,11 @@ test "the novelty signal closes thinking, reports the window's share, and latche
     const spec: Spec = .{ .id = "templated", .prompt = &.{1}, .max_new = 8000, .think_close = &.{ 90, 91, 92 }, .think_end = 91, .loop_guard = true, .loop_windows = 1 };
     var s = try Stream.init(gpa, spec);
     defer s.deinit(gpa);
-    try std.testing.expectEqual(@as(usize, 3 * 1024), try rounds(gpa, &s, tokens.items, 48));
+    try std.testing.expectEqual(@as(usize, 3 * 1024), try rounds(gpa, &s, tokens.items, 50));
     try std.testing.expect(s.loop_period == null and s.loop_novelty.? == 0);
     try std.testing.expect(!s.finished and !s.think_open and s.force.items.len == 3);
     while (s.popForce()) |token| _ = try s.commit(gpa, &.{token}, &.{});
-    try std.testing.expectEqual(tokens.items.len - 3 * 1024, try rounds(gpa, &s, tokens.items[3 * 1024 ..], 48));
+    try std.testing.expectEqual(tokens.items.len - 3 * 1024, try rounds(gpa, &s, tokens.items[3 * 1024 ..], 50));
     try std.testing.expect(!s.finished and s.loop_novelty.? == 0 and s.force.items.len == 0);
 
     // one batch: only its first window end may fire, as loopCut reads it, and that window is fresh
