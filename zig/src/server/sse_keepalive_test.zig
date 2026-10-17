@@ -7,6 +7,7 @@ const json = server.json;
 const model_text = @import("model_text.zig");
 const openai = @import("openai.zig");
 const clock = @import("clock.zig");
+const routes = @import("routes.zig");
 const Conn = @import("http_conn.zig").Conn;
 
 /// Bytes as tokens; every prompt renders as "prompt" (6 tokens).
@@ -167,4 +168,121 @@ test "a stream silent past the keepalive sends comments after its role chunk unt
     };
     try std.testing.expectEqualStrings(off.seen(), plain[0..k]);
     try std.testing.expect(off.n >= 3); // the role, the text, the last chunk
+}
+
+/// A streamed POST through the server's own routes over a socket pair: the body as the client reads it.
+fn wire(srv: *server.Server, backend: *SlowEngine, path: []const u8, body: []const u8) ![]u8 {
+    var pair: [2]std.c.fd_t = undefined;
+    if (std.c.socketpair(std.posix.AF.UNIX, std.posix.SOCK.STREAM, 0, &pair) != 0) return error.SocketPair;
+    defer _ = std.c.close(pair[0]);
+    defer _ = std.c.close(pair[1]);
+    const head = try std.fmt.allocPrint(std.testing.allocator, "POST {s} HTTP/1.1\r\nHost: t\r\nContent-Length: {d}\r\n\r\n", .{ path, body.len });
+    defer std.testing.allocator.free(head);
+    try writeAll(pair[0], head);
+    try writeAll(pair[0], body);
+    var conn = try Conn.init(std.testing.allocator, pair[1], "test");
+    defer conn.deinit();
+    conn.timeouts = .{ .idle_ms = 2000, .read_ms = 2000, .write_ms = 2000 };
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    if (try conn.readRequest(a, false) != .ready) return error.BadRequest;
+    routes.dispatch(srv, &conn, a);
+    if (backend.thread) |t| t.join();
+    backend.thread = null;
+    const raw = try readReady(std.testing.allocator, pair[0]);
+    defer std.testing.allocator.free(raw);
+    if (!std.mem.startsWith(u8, raw, "HTTP/1.1 200")) return error.BadReply;
+    const split = std.mem.indexOf(u8, raw, "\r\n\r\n") orelse return error.BadReply;
+    return std.testing.allocator.dupe(u8, raw[split + 4 ..]);
+}
+
+fn writeAll(fd: std.c.fd_t, data: []const u8) !void {
+    var sent: usize = 0;
+    while (sent < data.len) {
+        const n = std.c.write(fd, data[sent..].ptr, data.len - sent);
+        if (n <= 0) return error.Closed;
+        sent += @intCast(n);
+    }
+}
+
+fn readReady(a: std.mem.Allocator, fd: std.c.fd_t) ![]u8 {
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(a);
+    var tmp: [4096]u8 = undefined;
+    while (true) {
+        var pollfd = [_]std.posix.pollfd{.{ .fd = fd, .events = std.posix.POLL.IN, .revents = 0 }};
+        if (try std.posix.poll(&pollfd, 200) == 0) break;
+        const n = std.posix.read(fd, &tmp) catch |e| return e;
+        if (n == 0) break;
+        try out.appendSlice(a, tmp[0..n]);
+    }
+    return out.toOwnedSlice(a);
+}
+
+/// An SSE body's frames in order: 'c' a ``: keepalive`` comment, 'e' an event (``data:`` or ``event:``).
+fn frames(body: []const u8, out: []u8) ![]const u8 {
+    if (!std.mem.endsWith(u8, body, "\n\n")) return error.BadFrame;
+    var it = std.mem.splitSequence(u8, body[0 .. body.len - 2], "\n\n");
+    var n: usize = 0;
+    while (it.next()) |f| : (n += 1) {
+        if (n == out.len) return error.TooManyFrames;
+        out[n] = if (std.mem.eql(u8, f, ": keepalive"))
+            'c'
+        else if (std.mem.startsWith(u8, f, "data: ") or std.mem.startsWith(u8, f, "event: "))
+            'e'
+        else
+            return error.BadFrame;
+    }
+    return out[0..n];
+}
+
+const streamed = [_]struct { path: []const u8, body: []const u8 }{
+    .{ .path = "/v1/chat/completions", .body = "{\"model\":\"test-model\",\"messages\":[{\"role\":\"user\",\"content\":\"x\"}],\"stream\":true,\"max_tokens\":2}" },
+    .{ .path = "/v1/completions", .body = "{\"model\":\"test-model\",\"prompt\":\"x\",\"stream\":true,\"max_tokens\":2}" },
+    .{ .path = "/v1/messages", .body = "{\"model\":\"test-model\",\"max_tokens\":2,\"stream\":true,\"messages\":[{\"role\":\"user\",\"content\":\"x\"}]}" },
+    .{ .path = "/v1/responses", .body = "{\"model\":\"test-model\",\"input\":\"x\",\"stream\":true,\"max_output_tokens\":2,\"store\":false}" },
+};
+
+/// Each streamed route's frames through a server whose keepalive is `keepalive_ms`, a reply 450 ms after the submit.
+fn wireFrames(keepalive_ms: u32, out: *[streamed.len][64]u8, lens: *[streamed.len]usize) !void {
+    var text: TestText = .{};
+    var backend: SlowEngine = .{ .delay_ms = 450 };
+    var srv = try server.Server.init(std.testing.allocator, std.testing.io, backend.engine(), text.text(), .{
+        .served_name = "test-model",
+        .model_ids = &.{"test-model"},
+        .enable_thinking = false,
+        .use_drafts = false,
+        .sse_keepalive_ms = keepalive_ms,
+    }, null);
+    defer srv.deinit();
+    for (streamed, 0..) |r, i| {
+        const body = try wire(srv, &backend, r.path, r.body);
+        defer std.testing.allocator.free(body);
+        lens[i] = (try frames(body, &out[i])).len;
+    }
+}
+
+test "on the wire the comments sit between whole SSE frames on chat, completions, Messages and Responses, and add only themselves" {
+    var on: [streamed.len][64]u8 = undefined;
+    var on_n: [streamed.len]usize = undefined;
+    try wireFrames(100, &on, &on_n);
+    var off: [streamed.len][64]u8 = undefined;
+    var off_n: [streamed.len]usize = undefined;
+    try wireFrames(0, &off, &off_n);
+    for (0..streamed.len) |i| {
+        const with = on[i][0..on_n[i]];
+        const without = off[i][0..off_n[i]];
+        errdefer std.debug.print("{s}: with {s}, without {s}\n", .{ streamed[i].path, with, without });
+        try std.testing.expect(std.mem.count(u8, with, "c") >= 2);
+        try std.testing.expectEqual(@as(usize, 0), std.mem.count(u8, without, "c"));
+        try std.testing.expect(without.len >= 2);
+        var plain: [64]u8 = undefined;
+        var k: usize = 0;
+        for (with) |x| if (x != 'c') {
+            plain[k] = x;
+            k += 1;
+        };
+        try std.testing.expectEqualStrings(without, plain[0..k]);
+    }
 }
