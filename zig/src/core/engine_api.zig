@@ -95,6 +95,9 @@ pub const Request = struct {
     structure: ?Structure = null,
     /// Stop a short exact cycle while the think block is open.
     loop_guard: bool = false,
+    /// With ``loop_guard``, also close the think block after this many 1024-token windows in a row with under 2% new
+    /// token 8-grams (a templated loop that no exact cycle shows); 0: exact cycles only.
+    loop_windows: u32 = 0,
     /// The prompt row (the assistant header's last) where routed lessons decide whether they act (null: none acts).
     decide: ?u32 = null,
     /// The model as shipped: no learned neuron acts on its rows, no prompt state is kept or reused (a lesson's writer).
@@ -196,6 +199,8 @@ pub const Stats = struct {
     prefill_raised: []const bool = &.{},
     /// The loop period that ended or interrupted the think block, if any.
     loop_period: ?u32 = null,
+    /// The dry window's share of new token 8-grams, when the loop guard's novelty signal closed the think block.
+    loop_novelty: ?f64 = null,
     /// Prompt prefill duration measured by the engine host, in seconds.
     prefill_seconds: ?f64 = null,
     /// The drafter's own counters as a JSON object, or empty.

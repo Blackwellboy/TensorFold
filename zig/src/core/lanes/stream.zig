@@ -9,6 +9,7 @@ const Reader = @import("recall.zig").Reader;
 const Sampling = @import("sampling.zig").Sampling;
 const State = @import("depth.zig").State;
 const Row = @import("logprob.zig").Row;
+const Novelty = @import("novelty.zig").Novelty;
 
 pub const Reason = enum {
     none,
@@ -52,10 +53,12 @@ fn cycleAt(head: []const u32, tail: []const u32, n: usize) ?u32 {
 
 /// Return the first token index in a candidate batch that would fire the guard.
 pub fn loopCut(s: *const Stream, tokens: []const u32) ?usize {
-    if (!s.loop_guard or !s.think_open or s.think_end < 0 or s.loop_period != null) return null;
+    if (!s.guarding()) return null;
+    const dry = if (s.novelty) |*n| n.firesAt(s.emitted(), tokens) else null;
     for (tokens, 0..) |token, i| {
         if (@as(i64, token) == s.think_end) return null;
         if (cycleAt(s.emitted(), tokens, s.emitted().len + i + 1) != null) return i;
+        if (dry) |at| if (at == i) return i;
     }
     return null;
 }
@@ -141,6 +144,7 @@ pub const Spec = struct {
     think_end: i64 = -1,
     think_open: ?bool = null, // null: open when a budget is set (the server's rule)
     loop_guard: bool = false,
+    loop_windows: u32 = 0, // the guard's novelty signal: this many dry windows in a row close thinking (0: cycles only)
     chunks: []const u32 = &.{}, // where prefill chunks start after 0 (Python's PrefillPlan); empty: the backend's step
     history_len: u32 = 0, // prompt prefix lengths a backend may keep for a later turn: the rendered history,
     shared_prefixes: []const u32 = &.{}, // then shared system blocks
@@ -174,6 +178,8 @@ pub const Stream = struct {
     think_open: bool,
     loop_guard: bool,
     loop_period: ?u32 = null,
+    novelty: ?Novelty = null, // the guard's novelty signal (Spec.loop_windows)
+    loop_novelty: ?f64 = null, // the dry window's share of new grams, when that signal closed the think block
     chunks: []const u32,
     history_len: u32,
     shared_prefixes: []const u32,
@@ -244,6 +250,7 @@ pub const Stream = struct {
             .think_end = spec.think_end,
             .think_open = spec.think_open orelse (spec.think_budget > 0 or (spec.loop_guard and spec.think_end >= 0)),
             .loop_guard = spec.loop_guard,
+            .novelty = if (spec.loop_guard and spec.loop_windows > 0) .{ .windows = spec.loop_windows } else null,
             .chunks = spec.chunks,
             .history_len = spec.history_len,
             .shared_prefixes = spec.shared_prefixes,
@@ -272,6 +279,7 @@ pub const Stream = struct {
         s.rows.deinit(gpa);
         s.prompt_rows.deinit(gpa);
         s.force.deinit(gpa);
+        if (s.novelty) |*n| n.deinit(gpa);
         s.dropRoundState(gpa);
     }
 
@@ -387,6 +395,7 @@ pub const Stream = struct {
     pub fn commit(s: *Stream, gpa: Allocator, tokens: []const u32, rows: []const Row) !usize {
         if (rows.len != if (s.logprobs != null) tokens.len else 0) return error.LogprobRowsMismatch;
         var landed: usize = 0;
+        var ended = false; // a novelty window ended in this batch: only its first end may fire, as loopCut reads it
         for (tokens, 0..) |t, i| {
             if (s.finished) break;
             try s.context.append(gpa, t);
@@ -406,12 +415,15 @@ pub const Stream = struct {
                     break;
                 }
             }
-            const fire = if (s.loop_guard and s.think_open and s.think_end >= 0 and s.loop_period == null) detectLoop(s.emitted()) else null;
+            const watch = s.guarding();
+            const period = if (watch) detectLoop(s.emitted()) else null;
+            const dry = if (watch and period == null) try s.dryWindow(gpa, &ended) else null;
             if (s.isEos(t) or s.stopped()) {
                 s.finished = true;
                 s.reason = .stop;
-            } else if (fire) |period| {
+            } else if (period != null or dry != null) {
                 s.loop_period = period;
+                s.loop_novelty = dry;
                 if (s.emitted().len >= s.max_new) {
                     s.finished = true;
                     s.reason = .length;
@@ -435,6 +447,21 @@ pub const Stream = struct {
     fn stopped(s: *const Stream) bool {
         const c = s.stop_check orelse return false;
         return c.check(c.ptr, s.emitted());
+    }
+
+    /// The loop guard watches the open think block until one of its signals fires.
+    fn guarding(s: *const Stream) bool {
+        return s.loop_guard and s.think_open and s.think_end >= 0 and s.loop_period == null and s.loop_novelty == null;
+    }
+
+    /// The novelty signal after the newest token: the share of new grams of the window it ends, when that window fires
+    /// and is the batch's first to end (`ended`).
+    fn dryWindow(s: *Stream, gpa: Allocator, ended: *bool) !?f64 {
+        if (s.novelty == null) return null;
+        const n = &s.novelty.?;
+        const new = try n.observe(gpa, s.emitted()) orelse return null;
+        defer ended.* = true;
+        return if (!ended.* and n.fires()) new else null;
     }
 
     pub fn popForce(s: *Stream) ?u32 {
@@ -488,4 +515,99 @@ test "loop guard fires, closes thinking, and latches once" {
     try std.testing.expect(!s.finished and s.force.items.len == 0);
     _ = try s.commit(gpa, &.{8}, &.{});
     try std.testing.expect(!s.finished and s.loop_period.? == 1);
+}
+
+const reference = @import("novelty.zig").reference;
+
+/// Commit `tokens` `batch` at a time as the lane core's rounds do, cut where loopCut cuts, until the guard fires or the
+/// stream finishes; how many landed.
+fn rounds(gpa: Allocator, s: *Stream, tokens: []const u32, batch: usize) !usize {
+    var at: usize = 0;
+    while (at < tokens.len and !s.finished and s.force.items.len == 0) {
+        var next = tokens[at..@min(tokens.len, at + batch)];
+        if (loopCut(s, next)) |cut| next = next[0 .. cut + 1];
+        const landed = try s.commit(gpa, next, &.{});
+        at += landed;
+        if (landed < next.len) {
+            try std.testing.expect(s.finished); // a guard that fires mid-batch fires where loopCut cut
+            break;
+        }
+    }
+    return at;
+}
+
+const Fire = struct { at: usize, share: f64 };
+
+/// Where the novelty signal fires on `tokens` (the reply index of its last token) and the window's share of new grams.
+fn novelFire(gpa: Allocator, tokens: []const u32, windows: u32, batch: usize) !?Fire {
+    var s = try Stream.init(gpa, .{ .id = "novel", .prompt = &.{1}, .max_new = 1 << 20, .think_close = &.{ 90, 91, 92 }, .think_end = 91, .loop_guard = true, .loop_windows = windows });
+    defer s.deinit(gpa);
+    const landed = try rounds(gpa, &s, tokens, batch);
+    try std.testing.expect(s.loop_period == null and !s.finished);
+    const share = s.loop_novelty orelse {
+        try std.testing.expectEqual(tokens.len, landed);
+        return null;
+    };
+    try std.testing.expect(!s.think_open and std.mem.eql(u32, &.{ 90, 91, 92 }, s.force.items));
+    return .{ .at = landed - 1, .share = share };
+}
+
+test "the novelty signal fires where the Python guard does, a token or a round at a time" {
+    const gpa = std.testing.allocator;
+    var a: std.ArrayList(u32) = .empty;
+    defer a.deinit(gpa);
+    try reference.fresh(gpa, &a, 0, 2500);
+    try reference.loop13(gpa, &a, 20000);
+    var b: std.ArrayList(u32) = .empty;
+    defer b.deinit(gpa);
+    try reference.fresh(gpa, &b, 0, 2048);
+    try reference.loop13(gpa, &b, 5 * 1024);
+    try reference.fresh(gpa, &b, 10000, 20 * 1024);
+    var c: std.ArrayList(u32) = .empty; // the think block closes before the loop's fifth window ends
+    defer c.deinit(gpa);
+    try reference.fresh(gpa, &c, 0, 2500);
+    try reference.loop13(gpa, &c, 3000);
+    try c.append(gpa, 91);
+    try reference.loop13(gpa, &c, 20000);
+    var d: std.ArrayList(u32) = .empty;
+    defer d.deinit(gpa);
+    try reference.lcg(gpa, &d, 60 * 1024);
+    const cases = [_]struct { tokens: []const u32, windows: u32, want: ?Fire }{
+        .{ .tokens = a.items, .windows = 3, .want = .{ .at = 6143, .share = 0 } },
+        .{ .tokens = a.items, .windows = 10, .want = .{ .at = 13311, .share = 0 } },
+        .{ .tokens = b.items, .windows = 3, .want = .{ .at = 6143, .share = 0 } },
+        .{ .tokens = b.items, .windows = 10, .want = null },
+        .{ .tokens = c.items, .windows = 3, .want = null },
+        .{ .tokens = c.items, .windows = 10, .want = null },
+        .{ .tokens = d.items, .windows = 3, .want = .{ .at = 30719, .share = 5.0 / 1024.0 } },
+        .{ .tokens = d.items, .windows = 10, .want = .{ .at = 37887, .share = 2.0 / 1024.0 } },
+        .{ .tokens = a.items, .windows = 0, .want = null }, // the exact-cycle check alone: a loop of 13 is no cycle
+    };
+    for (cases) |case| for ([_]usize{ 1, 7, 48 }) |batch| {
+        try std.testing.expectEqual(case.want, try novelFire(gpa, case.tokens, case.windows, batch));
+    };
+}
+
+test "the novelty signal closes thinking, reports the window's share, and latches once" {
+    const gpa = std.testing.allocator;
+    var tokens: std.ArrayList(u32) = .empty;
+    defer tokens.deinit(gpa);
+    try reference.fresh(gpa, &tokens, 0, 1024);
+    try reference.loop13(gpa, &tokens, 4 * 1024);
+    const spec: Spec = .{ .id = "templated", .prompt = &.{1}, .max_new = 8000, .think_close = &.{ 90, 91, 92 }, .think_end = 91, .loop_guard = true, .loop_windows = 1 };
+    var s = try Stream.init(gpa, spec);
+    defer s.deinit(gpa);
+    try std.testing.expectEqual(@as(usize, 3 * 1024), try rounds(gpa, &s, tokens.items, 48));
+    try std.testing.expect(s.loop_period == null and s.loop_novelty.? == 0);
+    try std.testing.expect(!s.finished and !s.think_open and s.force.items.len == 3);
+    while (s.popForce()) |token| _ = try s.commit(gpa, &.{token}, &.{});
+    try std.testing.expectEqual(tokens.items.len - 3 * 1024, try rounds(gpa, &s, tokens.items[3 * 1024 ..], 48));
+    try std.testing.expect(!s.finished and s.loop_novelty.? == 0 and s.force.items.len == 0);
+
+    // one batch: only its first window end may fire, as loopCut reads it, and that window is fresh
+    var whole = try Stream.init(gpa, spec);
+    defer whole.deinit(gpa);
+    try std.testing.expectEqual(@as(?usize, null), loopCut(&whole, tokens.items));
+    try std.testing.expectEqual(tokens.items.len, try whole.commit(gpa, tokens.items, &.{}));
+    try std.testing.expect(whole.loop_novelty == null and whole.think_open);
 }

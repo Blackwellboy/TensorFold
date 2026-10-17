@@ -156,6 +156,7 @@ const GuardCase = struct {
     drafts: bool = true,
     think_budget: u32 = 0,
     loop_guard: bool = true,
+    loop_windows: u32 = 0,
     think_open: ?bool = null,
     cycle_after: usize = 70,
     pattern: []const u32 = &.{ 11, 12, 13 },
@@ -166,6 +167,7 @@ const GuardOut = struct {
     emitted: []u32,
     reason: sm.Reason,
     period: ?u32,
+    novelty: ?f64,
     finished: bool,
 };
 
@@ -184,7 +186,7 @@ fn runGuard(cases: []const GuardCase, step_limit: usize) ![]GuardOut {
     defer gpa.free(proposers);
     for (cases, streams, proposers) |item, *s, *p| {
         p.* = try SuffixLookup.init(gpa, .{ .min_match = 4 });
-        s.* = try sm.Stream.init(gpa, .{ .id = "guard", .prompt = item.prompt, .max_new = item.max_new, .eos = &.{96}, .drafts = item.drafts, .proposer = p.proposer(), .think_budget = item.think_budget, .think_close = &.{ 90, 91, 92 }, .think_end = 91, .think_open = item.think_open, .loop_guard = item.loop_guard });
+        s.* = try sm.Stream.init(gpa, .{ .id = "guard", .prompt = item.prompt, .max_new = item.max_new, .eos = &.{96}, .drafts = item.drafts, .proposer = p.proposer(), .think_budget = item.think_budget, .think_close = &.{ 90, 91, 92 }, .think_end = 91, .think_open = item.think_open, .loop_guard = item.loop_guard, .loop_windows = item.loop_windows });
     }
     defer for (streams, proposers) |*s, *p| {
         s.deinit(gpa);
@@ -194,7 +196,7 @@ fn runGuard(cases: []const GuardCase, step_limit: usize) ![]GuardOut {
     var steps: usize = 0;
     while (engine.activeCount() > 0 and steps < step_limit) : (steps += 1) try engine.step();
     const out = try gpa.alloc(GuardOut, cases.len);
-    for (out, streams) |*result, *s| result.* = .{ .emitted = try gpa.dupe(u32, s.emitted()), .reason = s.reason, .period = s.loop_period, .finished = s.finished };
+    for (out, streams) |*result, *s| result.* = .{ .emitted = try gpa.dupe(u32, s.emitted()), .reason = s.reason, .period = s.loop_period, .novelty = s.loop_novelty, .finished = s.finished };
     return out;
 }
 
@@ -281,6 +283,19 @@ test "the loop guard matches drafted and plain, reports its period, and answers 
     const off = try runGuard(&.{.{ .prompt = &p2, .loop_guard = false, .think_open = true }}, 5000);
     defer freeGuard(off);
     try std.testing.expect(off[0].finished and off[0].reason == .length and off[0].emitted.len == 400);
+}
+
+test "the novelty guard matches drafted and plain, reports its share, and answers after close" {
+    const pattern = [_]u32{ 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62 }; // a loop longer than any cycle
+    const plain = try runGuard(&.{.{ .prompt = &p2, .drafts = false, .max_new = 4000, .loop_windows = 2, .pattern = &pattern }}, 10000);
+    defer freeGuard(plain);
+    const drafted = try runGuard(&.{.{ .prompt = &p2, .max_new = 4000, .loop_windows = 2, .pattern = &pattern }}, 10000);
+    defer freeGuard(drafted);
+    try std.testing.expectEqualSlices(u32, plain[0].emitted, drafted[0].emitted);
+    try std.testing.expect(plain[0].period == null and plain[0].novelty.? == 0 and drafted[0].novelty.? == 0);
+    try std.testing.expect(plain[0].finished and plain[0].reason == .stop);
+    // the loop's second dry window ends at reply token 3 * 1024 - 1
+    try std.testing.expectEqualSlices(u32, &.{ 90, 91, 92, 40, 41, 42, 96 }, plain[0].emitted[3 * 1024 ..]);
 }
 
 test "a cycle in the answer does not refire or reclose" {

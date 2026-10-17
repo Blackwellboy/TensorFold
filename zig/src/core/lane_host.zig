@@ -269,7 +269,7 @@ pub const LaneHost = struct {
         job.reported();
         h.gpa.free(job.marks);
         const s = &job.stream;
-        const stats: Stats = if (job.started) .{ .rounds = s.rounds, .drafted = s.drafted, .accepted = s.accepted, .min_rows = s.min_rows, .loop_period = s.loop_period, .prefill_seconds = if (job.prefilled) |done| @as(f64, @floatFromInt(@as(i64, @intCast(@max(0, done - job.began))))) / 1e9 else null } else .{};
+        const stats: Stats = if (job.started) .{ .rounds = s.rounds, .drafted = s.drafted, .accepted = s.accepted, .min_rows = s.min_rows, .loop_period = s.loop_period, .loop_novelty = s.loop_novelty, .prefill_seconds = if (job.prefilled) |done| @as(f64, @floatFromInt(@as(i64, @intCast(@max(0, done - job.began))))) / 1e9 else null } else .{};
         const told = if (job.started) recalls.finished(h, job, reason, stats) else stats;
         emit(job, .{ .finished = .{ .reason = reason, .stats = told, .message = message } });
         if (job.started) {
@@ -355,6 +355,7 @@ pub const LaneHost = struct {
             .logprobs = r.logprobs,
             .prompt_logprobs = r.prompt_logprobs,
             .loop_guard = r.loop_guard,
+            .loop_windows = r.loop_windows,
             .chunks = r.chunks,
             .history_len = r.history_len,
             .shared_prefixes = r.shared_prefixes,

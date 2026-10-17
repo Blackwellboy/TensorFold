@@ -42,6 +42,8 @@ pub const Config = struct {
     reasoning_effort: ?[]const u8 = null,
     thinking_budget: i64 = 0,
     loop_guard: bool = false,
+    /// TENSORFOLD_LOOP_WINDOWS: with ``loop_guard``, dry windows in a row that close the think block (0: exact cycles only).
+    loop_windows: u32 = 10,
     /// Seconds the idle keepalive runs after the last request ends (0: off).
     keep_warm_s: i64 = 900,
     /// TENSORFOLD_SSE_KEEPALIVE (seconds): a stream that sent nothing for this long (a long prompt's prefill) sends an
