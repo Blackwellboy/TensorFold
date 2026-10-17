@@ -218,7 +218,7 @@ pub fn main(init: std.process.Init) !u8 {
             j.stream = try lanes.Stream.init(gpa, .{
                 .id = r.name,
                 .prompt = r.prompt,
-                .images = try imageRows(a, io, r.images, m.cfg.hidden),
+                .lane_images = try imageRows(a, io, r.images, m.cfg.hidden),
                 .max_new = r.max_tokens,
                 .eos = &eos,
                 .sampling = if (r.temperature > 0) .{ .seed = r.seed orelse 0, .temperature = r.temperature, .top_k = r.top_k, .top_p = r.top_p } else null,
@@ -299,8 +299,8 @@ fn seconds(t: std.Io.Timestamp, io: std.Io) f64 {
 }
 
 /// A request's image spans with their rows read (the files kept for the run).
-fn imageRows(a: std.mem.Allocator, io: std.Io, imgs: []const ImageRows, hidden: usize) ![]const lanes.stream.Image {
-    const out = try a.alloc(lanes.stream.Image, imgs.len);
+fn imageRows(a: std.mem.Allocator, io: std.Io, imgs: []const ImageRows, hidden: usize) ![]const lanes.stream.LaneImage {
+    const out = try a.alloc(lanes.stream.LaneImage, imgs.len);
     for (imgs, out) |img, *o| {
         const bytes = try std.Io.Dir.cwd().readFileAlloc(io, img.rows_file, a, .limited(1 << 32));
         const row = hidden * 2;

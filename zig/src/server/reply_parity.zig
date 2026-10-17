@@ -4,7 +4,7 @@
 //! parse_tool_calls). Corpus: {"tools": [[spec, ..], ..], "cases": [{"text", "tl" (index or null), "thinking", "max"}]}.
 //! Results: [{"reasoning", "answer", "content", "calls": [[name, arguments], ..]}] in case order.
 const std = @import("std");
-const json = @import("json.zig");
+const json = @import("json");
 const reply_text = @import("reply_text.zig");
 const tool_parse = @import("tool_parse.zig");
 const Value = json.Value;

@@ -3,7 +3,7 @@
 This recipe covers text generation with
 [`mlx-community/Qwen3.5-2B-MLX-4bit`](https://huggingface.co/mlx-community/Qwen3.5-2B-MLX-4bit/tree/93760be4f1f69842a46bc13dbdc0f19e291392a3),
 revision `93760be4f1f69842a46bc13dbdc0f19e291392a3`.
-Use the `zig-preview` source branch with Zig **0.17.0** and Xcode's Metal toolchain, as described in
+Build from `main` with Zig **0.17.0** and Xcode's Metal toolchain, as described in
 [the native preview](../../ZIG-PREVIEW.md#build). Keep weights outside the source checkout.
 
 ```bash
@@ -21,8 +21,10 @@ binary directly. It does not add a release gate for Python's automatic engine se
 The Python packed Qwen decoder's tied-head limitation is separate from this native implementation.
 Normal generation stops on both the model's end IDs and the tokenizer's chat-ending token; `ignore_eos: true` disables those stops for fixed-length throughput checks.
 
-The loader requires the 2B geometry, MLX affine 4-bit weights in groups of 64, bf16 scales and biases,
-and tied embeddings. The packed input embedding and output projection share the same checkpoint buffer.
+The loader requires the 2B geometry and MLX affine 4-bit weights in groups of 64 with bf16 scales and
+biases. The head is the packed input embedding when the checkpoint ties it, or the checkpoint's own
+`language_model.lm_head` projection when it ships one; `config.json`'s `tie_word_embeddings` must
+agree with the tensors either way, and the head matmul reuses the embedding-shape pipeline either way.
 The vision tower is not loaded. Images, video, other model sizes and other quantization formats are outside
 this recipe. Although the config describes an MTP layer, this checkpoint has no MTP weights; context-copy
 proposals use the shared lane engine with drafts enabled.
@@ -81,6 +83,6 @@ variation. These numerical comparisons do not demand bitwise equality across bac
 
 For the official receipt, run the [prescribed measurement tools](README.md#measurements) against the native
 server. Use `tools/bench_concurrent.py --alone --serial`, `tools/bench_openai.py --tokens 64 --reps 5
---temperatures 1.0,0`, and `tools/prefill_cold.py` at its public default lengths and repetitions.
+--temperatures 1.0,0`, and `tools/bench_cache.py --require-cold` on a long prompt for prompt speed.
 Run performance measurements without competing validation work. The previous native engine cannot run this
 checkpoint, so its before baseline is unsupported; do not report an invented speed-up.

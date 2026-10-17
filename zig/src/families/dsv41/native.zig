@@ -50,10 +50,10 @@ pub const prompt_rows: u32 = 2048;
 /// The served lane's reasoning effort numbers (text.zig): the server passes each name and the template hears its number.
 pub const efforts = @import("text.zig").efforts;
 
-pub const Options = struct { context: usize, drafts: bool, segments: usize = 1 };
+pub const Options = struct { context: usize, drafts: bool, segments: usize = 1, slide: bool = false }; // slide: no learner here
 
 /// A lone drafted stream's own driver: decodes it until it finishes (false) or `yield` hands it over (true).
-pub const LoneRun = *const fn (ctx: *anyopaque, s: *lanes.Stream, hooks: *anyopaque, committed: *const fn (*anyopaque) void, yield: *const fn (*anyopaque) bool) anyerror!bool;
+pub const LoneRun = *const fn (ctx: *anyopaque, s: *lanes.Stream, hooks: *anyopaque, committed: *const fn (*anyopaque) void, yield: *const fn (*anyopaque) bool, resumed: bool) anyerror!bool;
 
 /// What the native server drives: the lane backend, the facts its round loop reads, and how to free it.
 pub const Loaded = struct {
@@ -62,13 +62,17 @@ pub const Loaded = struct {
     rows: u32,
     /// Device bytes each admitted stream allocates for its own sequence.
     stream_bytes: usize,
+    /// Streams that allocate nothing (the CUDA host admits them free): none, every stream has its own sequence.
+    free_streams: u32 = 0,
+    /// Device bytes a trainer keeps out of the streams' room (--slide): none.
+    learn_bytes: usize = 0,
     ctx: *anyopaque,
     deinit: *const fn (*anyopaque) void,
     lone: ?LoneRun = null,
     /// Kept prompt states for the host's prompt cache (core/prompt_cache Snapshots: `ptr` and its functions).
     snaps: ?Snaps = null,
     /// Images in requests (the server renders their placeholders; the tower runs on this rank).
-    vision: ?lanes.stream.Vision = null,
+    lane_vision: ?lanes.stream.LaneVision = null,
 };
 
 pub const Snaps = struct {
@@ -113,7 +117,7 @@ pub fn weightBytes(io: std.Io, dir: []const u8) u64 {
 
 /// Loads rank 0 and links rank 1 (which must start against TF_TP_MASTER:TF_TP_PORT); the pool holds TF_DS_WINDOW
 /// positions (else `o.context`), a stream at most `o.context`. Needs `ctx` current.
-pub fn open(gpa: std.mem.Allocator, io: std.Io, ctx: *const cuda.Context, dir: []const u8, kernels: []const u8, o: Options) !Loaded {
+pub fn open(gpa: std.mem.Allocator, io: std.Io, ctx: *const cuda.Context, dir: []const u8, kernels: ?[]const u8, o: Options) !Loaded {
     const world = std.fmt.parseInt(u32, getenv("TF_TP_WORLD") orelse "2", 10) catch return error.BadWorld;
     if (world != 2 and world != 4) return error.NotPortedYet; // TP2, or the four-node 2D split
     const master = link.parseIp(getenv("TF_TP_MASTER") orelse return error.NoMaster) catch return error.BadMaster;
@@ -128,7 +132,7 @@ pub fn open(gpa: std.mem.Allocator, io: std.Io, ctx: *const cuda.Context, dir: [
         .model_dir = dir,
         .cache_dir = getenv("TF_DS_RANK_CACHE") orelse return error.NoRankCache,
         .kit_dir = getenv("TF_DS_KIT") orelse return error.NoKit,
-        .aot_dir = kernels,
+        .aot_dir = kernels, // null (TENSORFOLD_CUDA_KERNELS=native, or no set beside the binary): the kit's aot/
         .rank = 0,
         .world = world,
         .master = master,
@@ -161,7 +165,7 @@ pub fn open(gpa: std.mem.Allocator, io: std.Io, ctx: *const cuda.Context, dir: [
     // the pool is the model's (preallocated): a stream takes no device memory of its own
     const L = lanes_mod.Lanes;
     const snaps: Snaps = .{ .ptr = &st.lanes, .bytes = L.snapBytesFn, .save = L.snapSaveFn, .restore = L.snapRestoreFn, .drop = L.snapDropFn };
-    return .{ .backend = st.lanes.backend(), .facts = st.lanes.facts(), .rows = @intCast(st.m.eng.round_rows), .stream_bytes = 0, .ctx = st, .deinit = deinitFn, .snaps = snaps, .vision = if (st.vision) |v| v.hook() else null };
+    return .{ .backend = st.lanes.backend(), .facts = st.lanes.facts(), .rows = @intCast(st.m.eng.round_rows), .stream_bytes = 0, .ctx = st, .deinit = deinitFn, .snaps = snaps, .lane_vision = if (st.vision) |v| v.hook() else null };
 }
 
 fn deinitFn(ptr: *anyopaque) void {

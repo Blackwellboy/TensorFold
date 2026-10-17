@@ -434,7 +434,7 @@ pub const Lanes = struct {
         if (s.reuse.saved) |p| {
             const sn: *Snap = @ptrCast(@alignCast(p));
             // (a kept state knows no images: a prompt with them runs whole and keeps nothing)
-            if (s.images.len == 0 and self.usable(sn, len)) {
+            if (s.lane_images.len == 0 and self.usable(sn, len)) {
                 kept = sn;
                 // in place unless the extent runs past the pool, a live stream holds it, or another kept state has
                 // rows past the kept ones (resuming there would stale it: the rows go to a free extent instead, as
@@ -468,11 +468,11 @@ pub const Lanes = struct {
         defer spans.deinit(gpa);
         var rows: std.ArrayList(u8) = .empty;
         defer rows.deinit(gpa);
-        if (s.images.len > 0) {
+        if (s.lane_images.len > 0) {
             const image_id = m.cfg.image_token orelse return error.NoVision;
             const row_bytes = m.cfg.hidden * 2;
             var at_row: usize = 0;
-            for (s.images) |img| {
+            for (s.lane_images) |img| {
                 if (img.tokens == 0 or @as(usize, img.at) + img.tokens > len) return error.BadImageSpan;
                 for (seq.items[img.at..][0..img.tokens]) |*q| {
                     if (q.* != @as(i64, image_id)) return error.BadImageSpan;
@@ -553,7 +553,7 @@ pub const Lanes = struct {
             }
             head = try m.fillChunk(seq.items[0 .. start + n], start, n, replay);
             start += n;
-            if (s.images.len == 0) if (s.reuse.hook) |k| if (start < len and start <= replay and (start == last_end or markEnds(s.reuse.marks, start))) k.at(k.ptr, s, @intCast(start));
+            if (s.lane_images.len == 0) if (s.reuse.hook) |k| if (start < len and start <= replay and (start == last_end or markEnds(s.reuse.marks, start))) k.at(k.ptr, s, @intCast(start));
         }
         if (!head) return error.NoPromptLogits;
         const logits = try m.promptLogitsHost();

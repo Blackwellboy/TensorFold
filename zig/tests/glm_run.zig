@@ -13,7 +13,7 @@ const usage =
     \\GLM_EP (expert parallel: this Mac's link settings; run the same command on both Macs),
     \\GLM_TRACE=NAME:STEPS:PATH (every call of NAME's plain reply, sublayer by sublayer, feeding its expected tokens),
     \\GLM_FORCED (each prompt's teacher-forced agreement with its expected tokens, before the replies),
-    \\GLM_PROFILE=D,D (after the replies: a knock-out profile of a round at each depth, GLM_PROFILE_REPS times),
+    \\GLM_PROFILE=D,D (after the replies: a knock-out profile of a round at each depth, GLM_PROFILE_REPS times; GLM_PROFILE_ROWS=N: N rows at depth 0),
     \\GLM_LOGITS=PREFIX (write each prompt's last-row logits, bf16, to PREFIX.NAME.bf16 at its first depth's first run),
     \\GLM_LOGITS_VS=PREFIX (compare them with such a file: the largest difference against the bf16 step at the top logit),
     \\GLM_PROMPT_PROFILE=REPS (after the replies: each prompt's first chunk by class, each left out or alone),
@@ -22,7 +22,10 @@ const usage =
     \\GLM_TRACE_LAST=PREFIX (each prompt's last row at every capture point, bf16, to PREFIX.NAME.trace: embedding, then
     \\each layer's attention input and output and MLP input and output, then the final norm),
     \\GLM_PROMPT=0 (prompts in 16-row decode windows), GLM_CHUNK=N (prompt chunks of N rows), GLM_COPY=N (copy drafts from
-    \\N-token matches), GLM_RANKS=1 (where missed drafts' targets fell among the MTP head's choices).
+    \\N-token matches), GLM_RANKS=1 (where missed drafts' targets fell among the MTP head's choices),
+    \\GLM_SAMPLING=seed,temperature,top_k,top_p,min_p (seeded sampling for the standalone engine's replies; the seed is
+    \\required, 0 top_k races the whole vocabulary, the filters default to top_p 1 and min_p 0; unset or a 0 temperature
+    \\decodes greedily; a malformed value stops the run with an error rather than sampling or falling back to greedy).
 ;
 
 const Collect = struct {
@@ -123,7 +126,7 @@ pub fn main(init: std.process.Init) !void {
     const doc = try std.json.parseFromSliceLeaky(std.json.Value, arena, pf.bytes[0..pf.size], .{});
     const e = try glm.engine.Engine.load(gpa, args[1], cap);
     defer e.deinit();
-    std.debug.print("loaded in {d:.1} s: {d} of {d} layers, routed experts {d}-{d}, {d:.1} GB of weights, MTP head {s}\n", .{ e.load_seconds, e.c.run, e.c.layers, e.c.own[0], e.c.own[1] - 1, @as(f64, @floatFromInt(e.w.bytes)) / 1e9, if (e.hasMtp()) "yes" else "no" });
+    std.debug.print("loaded in {d:.1} s: {d} of {d} layers, routed experts {d}-{d}, {d:.1} GB of weights, MTP head {s}, {d:.2} GB of caches and buffers, prompt chunks of {d} rows\n", .{ e.load_seconds, e.c.run, e.c.layers, e.c.own[0], e.c.own[1] - 1, @as(f64, @floatFromInt(e.w.bytes)) / 1e9, if (e.hasMtp()) "yes" else "no", @as(f64, @floatFromInt(e.arena.bytes)) / 1e9, if (e.pr) |p| p.rows else 0 });
     const strict = std.c.getenv("GLM_REF_STRICT") != null;
     const eos = e.c.eos[0..e.c.eos_n];
     if (std.c.getenv("GLM_CAPTURE")) |path| { // the first prompt's first window, sublayer by sublayer (glm_ref.py --capture)
