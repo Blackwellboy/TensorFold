@@ -1,7 +1,7 @@
 //! A server's life: keys, the listening socket, the startup lines, the live line, and a clean stop on SIGTERM or SIGINT.
 const std = @import("std");
 const api = @import("engine_api");
-const json = @import("json.zig");
+const json = @import("json");
 const auth = @import("auth.zig");
 const cli = @import("cli.zig");
 const log = @import("log.zig");
@@ -9,6 +9,7 @@ const live = @import("live.zig");
 const listener_mod = @import("listener.zig");
 const model_text = @import("model_text.zig");
 const server_mod = @import("server.zig");
+const recall_routes = @import("recall_routes.zig");
 const Allocator = std.mem.Allocator;
 const posix = std.posix;
 
@@ -65,12 +66,20 @@ pub const Setup = struct {
     engine: api.Engine,
     text: model_text.Text,
     served: []const u8,
+    /// The checkpoint's folder (structured output reads its tokenizer.json and config.json, /slide shows its shards).
+    model_dir: []const u8 = "",
     /// Sampling defaults from generation_config.json and the flags, as a JSON object; null: greedy.
     sampling: ?json.Value = null,
     environ: ?*const std.process.Environ.Map = null,
     started: i96 = 0,
+    /// The release, backend and GPU the open /health names.
+    identity: server_mod.Identity = .{},
+    /// A test build's TF_SLIDE_FORGET_FAIL: the fact whose check a delete fails (0: none, as in every release).
+    forget_fail: u32 = 0,
     /// Called once the socket listens, with its port (tests read it).
     on_listen: ?*const fn (port: u16) void = null,
+    /// Recall's record, attached to the engine already (--recall); null: off.
+    recall: ?*api.recall_store.Store = null,
 };
 
 fn env(s: Setup, name: []const u8) ?[]const u8 {
@@ -88,6 +97,7 @@ pub fn run(gpa: Allocator, io: std.Io, args: cli.Args, s: Setup) u8 {
         std.debug.print("tensorfold: {s}\n", .{if (problem.len > 0) problem else "API key file cannot be opened safely"});
         return 1;
     };
+    defer store.deinit();
     if (!store.enabled() and !auth.loopback(args.host)) log.line("warning: non-loopback server has no API key; requests are open", .{});
     var ids: std.ArrayList([]const u8) = .empty;
     for ([_][]const []const u8{ &.{s.served}, args.alias }) |group| for (group) |raw| {
@@ -101,29 +111,48 @@ pub fn run(gpa: Allocator, io: std.Io, args: cli.Args, s: Setup) u8 {
         std.debug.print("tensorfold: TENSORFOLD_SEED_SALT={s}: an integer\n", .{t});
         return 1;
     } else 0;
+    const keepalive_s: u32 = if (env(s, "TENSORFOLD_SSE_KEEPALIVE")) |t| std.fmt.parseInt(u32, std.mem.trim(u8, t, " "), 10) catch {
+        std.debug.print("tensorfold: TENSORFOLD_SSE_KEEPALIVE={s}: whole seconds (0: off)\n", .{t});
+        return 1;
+    } else 0;
+    const loop_windows: u32 = if (env(s, "TENSORFOLD_LOOP_WINDOWS")) |t| std.fmt.parseInt(u32, std.mem.trim(u8, t, " "), 10) catch {
+        std.debug.print("tensorfold: TENSORFOLD_LOOP_WINDOWS={s}: a whole number of windows (0: exact cycles only)\n", .{t});
+        return 1;
+    } else 10;
     const config: server_mod.Config = .{
         .served_name = s.served,
+        .model_dir = s.model_dir,
         .model_ids = ids.items,
         .default_max_tokens = args.max_tokens,
         .enable_thinking = args.thinking,
         .reasoning_effort = args.reasoning_effort,
         .thinking_budget = args.thinking_budget,
         .loop_guard = args.loop_guard,
+        .loop_windows = loop_windows,
         .keep_warm_s = args.keep_warm,
+        .sse_keepalive_ms = std.math.mul(u32, keepalive_s, 1000) catch std.math.maxInt(u32),
         .default_sampling = s.sampling,
         .use_drafts = !args.no_drafts,
+        .vision_urls = args.vision_urls,
         .seed_salt = salt,
         .request_log = env(s, "TENSORFOLD_REQUEST_LOG"),
         .dashboard = args.dashboard,
         .compact_at = if (args.compact_auto) .{ .auto = {} } else if (args.compact_fraction) |f| .{ .fraction = f } else null,
         .compact_keep = args.compact_keep,
         .compact_memory = args.compact_memory,
+        .slide_graph = args.slide_graph,
+        .slide_forget_fail = s.forget_fail,
+        .cortheon = args.cortheon,
+        .cortheon_search_key = env(s, "BRAVE_SEARCH_API_KEY"),
+        .saved_conversations = args.learn_conversations,
+        .identity = s.identity,
     };
     const srv = server_mod.Server.init(gpa, io, s.engine, s.text, config, if (store.enabled()) &store else null) catch {
         std.debug.print("tensorfold: the server could not start\n", .{});
         return 1;
     };
     defer srv.deinit();
+    srv.recall = s.recall;
     if (args.loop_guard and !srv.info.loop_guard) {
         std.debug.print("tensorfold: --loop-guard is not supported by this native engine\n", .{});
         return 2;
@@ -146,11 +175,13 @@ pub fn run(gpa: Allocator, io: std.Io, args: cli.Args, s: Setup) u8 {
     const loaded = if (s.started > 0) @as(f64, @floatFromInt(now - s.started)) / 1e9 else 0;
     var window_text: [24]u8 = undefined;
     log.line("serving {s} at http://{s}:{d}/v1 (sampling: {s}; drafts: {s}; context: {s}; loaded in {d:.1}s)", .{
-        s.served,                            args.host,                                                                                   port,   shownSampling(a, s.sampling),
-        if (args.no_drafts) "off" else "on", if (window > 0) std.fmt.bufPrint(&window_text, "{d}", .{window}) catch "?" else "unlimited", loaded,
+        s.served,                                                   args.host,                                                                                   port,   shownSampling(a, s.sampling),
+        if (args.no_drafts or srv.info.plain_only) "off" else "on", if (window > 0) std.fmt.bufPrint(&window_text, "{d}", .{window}) catch "?" else "unlimited", loaded,
     });
     if (args.thinking and std.mem.indexOf(u8, s.text.templateSource(), "enable_thinking") != null)
         log.line("thinking on (the chat template's default): replies reason in reasoning_content before the answer in content, and max_tokens counts both. --no-thinking turns it off; a request can send chat_template_kwargs {{\"enable_thinking\": false}}", .{});
+    if (s.recall) |r| recall_routes.line(r);
+    if (srv.cortheon) |c| log.line("cortheon on: chat requests get Cortheon's reasoning program, web research before building, and cortheon_search/cortheon_fetch run here ({s}); a request can send \"cortheon\": false", .{c.engine});
     live.columns_env = env(s, "COLUMNS");
     var ticker: live.Ticker = .{ .engine = s.engine };
     const drawing = live.wanted(io, if (env(s, "TENSORFOLD_NO_LIVE")) |v| std.mem.eql(u8, v, "1") else false);
@@ -161,6 +192,7 @@ pub fn run(gpa: Allocator, io: std.Io, args: cli.Args, s: Setup) u8 {
     if (drawing) ticker.finish();
     var waited: u32 = 0;
     while (srv.open_connections.load(.acquire) > 0 and waited < 40) : (waited += 1) std.Io.sleep(io, .fromMilliseconds(50), .awake) catch {};
+    s.engine.drain(); // kept states waiting for disk are written (under the engine's deadline) before the process ends
     if (srv.open_connections.load(.acquire) > 0) std.process.exit(0); // replies still open: end without freeing what they read
     return 0;
 }

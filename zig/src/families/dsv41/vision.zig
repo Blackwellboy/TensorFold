@@ -1,5 +1,5 @@
 //! Images on rank 0 for the served lane's vision path: an image's bytes into its picture on the request's thread
-//! (lanes.stream.Vision.prepare: decoded, planned, padded and cut into the ViT's patches as the lane's `decode` makes
+//! (lanes.stream.LaneVision.prepare: decoded, planned, padded and cut into the ViT's patches as the lane's `decode` makes
 //! them, picture.zig), and the picture into its span's rows on the lane host's thread at the prompt pass (the tower's
 //! encode and span rows, vit.zig), which lanes.zig then hands to the text model and to the other ranks.
 const std = @import("std");
@@ -63,13 +63,13 @@ pub const Vision = struct {
     }
 
     /// The server's view: the placeholder the template renders for each image and the picture it prepares.
-    pub fn hook(v: *Vision) lanes.stream.Vision {
+    pub fn hook(v: *Vision) lanes.stream.LaneVision {
         return .{ .ctx = v, .placeholder = placeholder, .token = v.m.cfg.image_token.?, .prepare = prepareFn };
     }
 
     pub const placeholder = "<\u{ff5c}deepseek_image\u{ff5c}>";
 
-    fn prepareFn(ctx: *anyopaque, a: std.mem.Allocator, bytes: []const u8, problem: *[]const u8) lanes.stream.Vision.PrepareError!lanes.stream.Vision.Prepared {
+    fn prepareFn(ctx: *anyopaque, a: std.mem.Allocator, bytes: []const u8, problem: *[]const u8) lanes.stream.LaneVision.PrepareError!lanes.stream.LaneVision.Prepared {
         const v: *Vision = @ptrCast(@alignCast(ctx));
         var rgb = try v.decode(a, bytes, problem);
         defer rgb.deinit(a);
@@ -89,7 +89,7 @@ pub const Vision = struct {
 
     /// The image's RGB as the lane's Pillow decodes it: picture.zig's PNG, else Pillow's own (the refusal in the lane's
     /// words on BadImage).
-    fn decode(v: *Vision, a: std.mem.Allocator, bytes: []const u8, problem: *[]const u8) lanes.stream.Vision.PrepareError!picture.Rgb {
+    fn decode(v: *Vision, a: std.mem.Allocator, bytes: []const u8, problem: *[]const u8) lanes.stream.LaneVision.PrepareError!picture.Rgb {
         if (picture.decodePng(a, bytes)) |rgb| return rgb else |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.TooLarge => {

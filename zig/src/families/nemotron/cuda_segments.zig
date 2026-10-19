@@ -76,6 +76,7 @@ pub fn prefill(e: *Engine, s: *Segments, prompt: []const u32, head: ?*Head, part
     var last_rows: usize = 0;
     while (at < prompt.len) {
         if (Cancel.now(cancel)) return error.Cancelled;
+        try e.beforeChunk(cancel);
         const c = segs.chunked(prompt.len - at, R, parts);
         var seg: [MAX]Seg = undefined;
         try e.copied.synchronize();
@@ -85,7 +86,9 @@ pub fn prefill(e: *Engine, s: *Segments, prompt: []const u32, head: ?*Head, part
             const rows = segs.chunkRows(c.rows, R, k);
             try e.ops().upload(bufs[k].p_ids, std.mem.sliceAsBytes(host[k * R ..][0..rows]));
             const ops: kern.Ops = .{ .k = &e.k, .s = s.runner.stream(e.stream, k) };
-            const f = fwd.Forward.init(e.c, &e.w, bufs[k], ops, e.max_len, e.nch, e.sampling != null);
+            var f = fwd.Forward.init(e.c, &e.w, bufs[k], ops, e.max_len, e.nch, e.sampling != null);
+            f.untaught = e.bound.untaught;
+            f.vision = e.vision;
             seg[k] = .{ .f = f, .walk = .{ .rows = rows, .pos = e.pos + k * R } };
         }
         try e.copied.record(e.stream);
@@ -101,6 +104,7 @@ pub fn prefill(e: *Engine, s: *Segments, prompt: []const u32, head: ?*Head, part
         e.pos += c.rows;
         at += c.rows;
     }
+    e.last_chunk = prompt.len - last_rows;
     if (last == 0) return;
     const o = e.ops();
     try o.copy(e.b.p_hidden, bufs[last].p_hidden, last_rows * e.c.hidden * 2);

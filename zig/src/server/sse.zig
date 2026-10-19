@@ -1,6 +1,6 @@
 //! Server-sent events as the Python server frames them: the head, ``data:`` frames, typed ``event:`` frames, ``[DONE]``.
 const std = @import("std");
-const json = @import("json.zig");
+const json = @import("json");
 const Conn = @import("http_conn.zig").Conn;
 const Allocator = std.mem.Allocator;
 
@@ -21,6 +21,11 @@ pub fn data(conn: *Conn, a: Allocator, payload: json.Value) error{Closed}!void {
 
 pub fn done(conn: *Conn) error{Closed}!void {
     return conn.writeAll("data: [DONE]\n\n");
+}
+
+/// ``: keepalive`` and a blank line: an SSE comment, which clients skip; an idle stream's timers see it alive.
+pub fn comment(conn: *Conn) error{Closed}!void {
+    return conn.writeAll(": keepalive\n\n");
 }
 
 /// ``event: KIND`` then its data line (Responses and Messages events).

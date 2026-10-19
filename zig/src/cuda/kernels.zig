@@ -20,10 +20,26 @@ pub const experts: []const u8 = if (available) &Blob("fatbin_experts").bytes els
 pub const experts_prefill: []const u8 = if (available) &Blob("fatbin_experts_prefill").bytes else &.{};
 pub const experts_pack: []const u8 = if (available) &Blob("fatbin_experts_pack").bytes else &.{};
 pub const prefill_attention: []const u8 = if (available) &Blob("fatbin_prefill_attention").bytes else &.{};
+pub const lfm2: []const u8 = if (available) &Blob("fatbin_lfm2").bytes else &.{};
+pub const vit: []const u8 = if (available) &Blob("fatbin_vit").bytes else &.{};
 pub const scan_rows: []const u8 = if (available) &Blob("fatbin_scan_rows").bytes else &.{};
 pub const nemotron_ops: []const u8 = if (available) &Blob("fatbin_nemotron_ops").bytes else &.{};
 pub const lane_gemv: []const u8 = if (available) &Blob("fatbin_lane_gemv").bytes else &.{};
+pub const affine4_pack: []const u8 = if (available) &Blob("fatbin_affine4_pack").bytes else &.{};
+pub const fp8_experts: []const u8 = if (available) &Blob("fatbin_fp8_experts").bytes else &.{};
+pub const exlr8: []const u8 = if (available) &Blob("fatbin_exlr8").bytes else &.{};
+pub const exlr8_dense: []const u8 = if (available) &Blob("fatbin_exlr8_dense").bytes else &.{};
+pub const nvfp4_experts: []const u8 = if (available) &Blob("fatbin_nvfp4_experts").bytes else &.{};
+pub const rank_sum: []const u8 = if (available) &Blob("fatbin_rank_sum").bytes else &.{};
 pub const sample: []const u8 = if (available) &Blob("fatbin_sample").bytes else &.{};
+pub const train: []const u8 = if (available) &Blob("fatbin_train").bytes else &.{};
+pub const qmmf: []const u8 = if (available) &Blob("fatbin_qmmf").bytes else &.{};
+pub const prompt16: []const u8 = if (available) &Blob("fatbin_prompt16").bytes else &.{};
+pub const modelopt_pack: []const u8 = if (available) &Blob("fatbin_modelopt_pack").bytes else &.{};
+pub const glm_glue: []const u8 = if (available) &Blob("fatbin_glm_glue").bytes else &.{};
+pub const glm_ops: []const u8 = if (available) &Blob("fatbin_glm_ops").bytes else &.{};
+pub const glm_quant: []const u8 = if (available) &Blob("fatbin_glm_quant").bytes else &.{};
+pub const glm_kda: []const u8 = if (available) &Blob("fatbin_glm_kda").bytes else &.{};
 pub const torch_argmax: []const u8 = if (available) &Blob("fatbin_torch_argmax").bytes else &.{};
 pub const torch_topk: []const u8 = if (available) &Blob("fatbin_torch_topk").bytes else &.{};
 pub const torch_pointwise: []const u8 = if (available) &Blob("fatbin_torch_pointwise").bytes else &.{};
@@ -34,6 +50,16 @@ pub const dsv41_ops: []const u8 = if (available) &Blob("fatbin_dsv41_ops").bytes
 pub const dsv41_torch: []const u8 = if (available) &Blob("fatbin_dsv41_torch").bytes else &.{};
 pub const dsv41_rdma: []const u8 = if (available) &Blob("fatbin_dsv41_rdma").bytes else &.{};
 pub const dsv41_experts_par: []const u8 = if (available) &Blob("fatbin_dsv41_experts_par").bytes else &.{};
+pub const nemotron_norms: []const u8 = if (available) &Blob("fatbin_nemotron_norms").bytes else &.{};
+pub const nemotron_route: []const u8 = if (available) &Blob("fatbin_nemotron_route").bytes else &.{};
+pub const nemotron_mamba: []const u8 = if (available) &Blob("fatbin_nemotron_mamba").bytes else &.{};
+pub const nemotron_attention: []const u8 = if (available) &Blob("fatbin_nemotron_attention").bytes else &.{};
+pub const nemotron_keyed: []const u8 = if (available) &Blob("fatbin_nemotron_keyed").bytes else &.{};
+pub const nemotron_latent: []const u8 = if (available) &Blob("fatbin_nemotron_latent").bytes else &.{};
+pub const ck_lane: []const u8 = if (available) &Blob("fatbin_ck_lane").bytes else &.{};
+pub const ck_experts: []const u8 = if (available) &Blob("fatbin_ck_experts").bytes else &.{};
+pub const norms: []const u8 = if (available) &Blob("fatbin_norms").bytes else &.{};
+pub const embed_rows: []const u8 = if (available) &Blob("fatbin_embed_rows").bytes else &.{};
 
 /// Symbols in the gdn image as cuobjdump lists them for the built fatbin (named namespace tf_gdn).
 pub const gdn_symbols = struct {
@@ -43,7 +69,7 @@ pub const gdn_symbols = struct {
 
 /// Every instantiation gdn.cu exports; tests resolve each one so a wrong name cannot hide behind an unused path.
 pub const gdn_variants = [_]TreeVariant{
-    tree(0, 8, 4, true), tree(1, 8, 4, false), tree(2, 8, 2, false), tree(2, 4, 4, false),
+    tree(0, 8, 4, true),  tree(1, 8, 4, false), tree(2, 8, 2, false),  tree(2, 4, 4, false),
     tree(4, 2, 4, false), tree(8, 2, 4, false), tree(16, 2, 2, false), tree(32, 2, 1, false),
 };
 

@@ -65,23 +65,113 @@ pub const Fan = struct {
 
     /// Comm.init over every link: rank 0 makes the id and sends it to each follower. Needs the CUDA context current.
     pub fn comm(f: *const Fan, rank: u32, world: u32) !Comm {
+        return f.commChecked(rank, world, null);
+    }
+
+    /// comm, with this rank's Settings (Model.open's): rank 0 sends its own after the id and waits for each follower's
+    /// answer, a follower checks rank 0's against its own and answers. A difference ends both with SettingsDiffer, its
+    /// words on stderr, before NCCL starts (a follower of fewer streams than rank 0 serves otherwise refuses the first
+    /// step of a stream past its own and rank 0 waits for it in an exchange for good).
+    pub fn commChecked(f: *const Fan, rank: u32, world: u32, mine: ?Settings) !Comm {
         var lib = try nccl.Library.open();
         errdefer lib.close();
         var id: nccl.UniqueId = undefined;
         if (world > 1) {
-            if (rank == 0) {
+            var why: [1024]u8 = undefined;
+            const differ = if (rank == 0) blk: {
                 try lib.check(lib.api.ncclGetUniqueId(&id), "ncclGetUniqueId");
-                for (f.links) |l| if (l) |x| try x.send(std.mem.asBytes(&id));
-            } else {
-                var buf: [@sizeOf(nccl.UniqueId)]u8 = undefined;
-                const got = try f.links[0].?.recv(&buf);
-                if (got.len != buf.len) return error.BadUniqueId;
-                id = std.mem.bytesToValue(nccl.UniqueId, got);
+                break :blk try f.lead(std.mem.asBytes(&id), mine, &why);
+            } else try f.follow(rank, std.mem.asBytes(&id), mine, &why);
+            if (differ.len > 0) {
+                std.debug.print("tf-dsv41: the ranks' settings differ: {s}\n", .{differ});
+                return error.SettingsDiffer;
             }
         } else try lib.check(lib.api.ncclGetUniqueId(&id), "ncclGetUniqueId");
         var c: nccl.Comm = null;
         try lib.check(lib.api.ncclCommInitRank(&c, @intCast(world), id, @intCast(rank)), "ncclCommInitRank");
         return .{ .lib = lib, .comm = c, .rank = rank, .world = world };
+    }
+
+    /// Rank 0: the id, and after it `mine` when given, down every link; then every follower's answer. "" when each one
+    /// can follow, else the first one's words (in `why`).
+    fn lead(f: *const Fan, id: []const u8, mine: ?Settings, why: []u8) ![]const u8 {
+        var frame: [id_max + @sizeOf(Settings)]u8 = undefined;
+        if (id.len > id_max) return error.BadUniqueId;
+        @memcpy(frame[0..id.len], id);
+        var n = id.len;
+        if (mine) |s| {
+            @memcpy(frame[n..][0..@sizeOf(Settings)], std.mem.asBytes(&s));
+            n += @sizeOf(Settings);
+        }
+        for (f.links) |l| if (l) |x| try x.send(frame[0..n]);
+        if (mine == null) return "";
+        var first: []const u8 = "";
+        var rest: [1024]u8 = undefined;
+        for (f.links) |l| if (l) |x| {
+            const got = try x.recv(if (first.len == 0) why else &rest);
+            if (first.len == 0 and got.len > 0) first = got;
+        };
+        return first;
+    }
+
+    /// A follower: rank 0's id into `id`, and the Settings after it (an older rank 0 sends none: nothing to check)
+    /// checked against `mine`, the answer sent back. "" when this rank can follow, else its words (in `why`).
+    fn follow(f: *const Fan, rank: u32, id: []u8, mine: ?Settings, why: []u8) ![]const u8 {
+        const l = f.links[0].?;
+        var frame: [id_max + @sizeOf(Settings)]u8 = undefined;
+        const got = try l.recv(&frame);
+        if (got.len != id.len and got.len != id.len + @sizeOf(Settings)) return error.BadUniqueId;
+        @memcpy(id, got[0..id.len]);
+        if (got.len == id.len) return "";
+        const theirs = std.mem.bytesToValue(Settings, got[id.len..]);
+        if (theirs.magic != Settings.tag) return error.BadUniqueId;
+        const text = if (mine) |s| s.differ(theirs, rank, why) else "";
+        try l.send(text);
+        return text;
+    }
+
+    const id_max = 256; // NCCL's id is 128 bytes
+};
+
+/// What the ranks of a run must agree on, checked at the start (Fan.commChecked) from Model.open's options.
+pub const Settings = extern struct {
+    magic: u32 = tag,
+    world: u32,
+    streams: u32, // TF_DS_STREAMS (a follower's --streams): a follower holds every stream rank 0 serves
+    round_rows: u32, // TF_DS_ROUND_ROWS (--round-rows): the same (it picks the decode kernels)
+    rails: u32, // TF_RDMA_DEVICES (--rdma): as many devices (0: NCCL)
+    drafts: u32, // the drafter (--drafts): the same
+    replay_floor: u32, // TF_DS_REPLAY_FLOOR: the same
+    idx_split: u32 = 0, // TF_DS_IDX_SPLIT (prompt.split_from): the same (the keyed indexer layers all-gather inside)
+    pool: u64, // rank 0's --context (a follower's --pool): a follower's holds rank 0's
+
+    pub const tag: u32 = 0x31345344; // "DS41"
+
+    /// What follower `rank` (its Settings `mine`) would have to change to follow rank 0's `lead`, in words ("": none).
+    pub fn differ(mine: Settings, lead: Settings, rank: u32, buf: []u8) []const u8 {
+        var w: std.Io.Writer = .fixed(buf);
+        const sep = "; ";
+        if (mine.world != lead.world)
+            w.print("{s}rank {d} runs WORLD {d} and rank 0 {d}", .{ sepIf(&w, sep), rank, mine.world, lead.world }) catch {};
+        if (mine.streams < lead.streams)
+            w.print("{s}rank {d} holds {d} streams and rank 0 serves {d}: start rank {d} with --streams {d} (or TF_DS_STREAMS={d})", .{ sepIf(&w, sep), rank, mine.streams, lead.streams, rank, lead.streams, lead.streams }) catch {};
+        if (mine.pool < lead.pool)
+            w.print("{s}rank {d}'s pool holds {d} positions and rank 0's {d} (its --context, or TF_DS_WINDOW): start rank {d} with --pool {d}", .{ sepIf(&w, sep), rank, mine.pool, lead.pool, rank, lead.pool }) catch {};
+        if (mine.round_rows != lead.round_rows)
+            w.print("{s}rank {d} runs rounds of {d} rows and rank 0 {d}: start rank {d} with --round-rows {d} (or TF_DS_ROUND_ROWS={d})", .{ sepIf(&w, sep), rank, mine.round_rows, lead.round_rows, rank, lead.round_rows, lead.round_rows }) catch {};
+        if (mine.rails != lead.rails)
+            w.print("{s}rank {d} has {d} RDMA devices and rank 0 {d} (TF_RDMA_DEVICES): give rank {d} as many with --rdma", .{ sepIf(&w, sep), rank, mine.rails, lead.rails, rank }) catch {};
+        if (mine.drafts != lead.drafts)
+            w.print("{s}rank {d} {s} the drafter and rank 0 {s}: start rank {d} with --drafts {d}", .{ sepIf(&w, sep), rank, if (mine.drafts != 0) "loads" else "does not load", if (lead.drafts != 0) "does" else "does not", rank, lead.drafts }) catch {};
+        if (mine.replay_floor != lead.replay_floor)
+            w.print("{s}rank {d} has TF_DS_REPLAY_FLOOR={d} and rank 0 {d}: set the same on every rank", .{ sepIf(&w, sep), rank, mine.replay_floor, lead.replay_floor }) catch {};
+        if (mine.idx_split != lead.idx_split)
+            w.print("{s}rank {d} splits the keyed indexer rows from {d} columns and rank 0 from {d} (TF_DS_IDX_SPLIT, 0: unset): set the same on every rank", .{ sepIf(&w, sep), rank, mine.idx_split, lead.idx_split }) catch {};
+        return w.buffered();
+    }
+
+    fn sepIf(w: *const std.Io.Writer, sep: []const u8) []const u8 {
+        return if (w.end > 0) sep else "";
     }
 };
 
@@ -325,4 +415,90 @@ test "a node's split: TP over two, the 2D split over four" {
     try std.testing.expectEqual(plan.Split{ .rank = 0, .world = 2, .pair = 1 }, try split(2, 4));
     try std.testing.expectEqual(plan.Split{ .rank = 1, .world = 2, .pair = 1 }, try split(3, 4));
     try std.testing.expectError(error.UnsupportedWorld, split(0, 3));
+}
+
+test "a follower holds rank 0's streams and pool and runs its round rows, or says what to change" {
+    const served: Settings = .{ .world = 2, .streams = 8, .round_rows = 16, .rails = 2, .drafts = 1, .replay_floor = 1, .pool = 524288 };
+    var buf: [1024]u8 = undefined;
+    try std.testing.expectEqualStrings("", served.differ(served, 1, &buf));
+    var more = served; // a follower may hold more streams and positions than rank 0 uses
+    more.streams = 16;
+    more.pool = 1 << 20;
+    try std.testing.expectEqualStrings("", more.differ(served, 1, &buf));
+    var four = served;
+    four.streams = 4;
+    try std.testing.expectEqualStrings("rank 1 holds 4 streams and rank 0 serves 8: start rank 1 with --streams 8 (or TF_DS_STREAMS=8)", four.differ(served, 1, &buf));
+    var other = served;
+    other.round_rows = 48;
+    other.replay_floor = 0;
+    other.pool = 262144;
+    other.rails = 0;
+    other.drafts = 0;
+    const words = other.differ(served, 3, &buf);
+    for ([_][]const u8{ "--pool 524288", "--round-rows 16", "--rdma", "--drafts 1", "TF_DS_REPLAY_FLOOR=0 and rank 0 1" }) |s|
+        try std.testing.expect(std.mem.indexOf(u8, words, s) != null);
+    try std.testing.expectEqual(@as(usize, 4), std.mem.count(u8, words, "; "));
+}
+
+test "a follower splits the keyed indexer rows as rank 0 does, or says to set the same" {
+    const served: Settings = .{ .world = 4, .streams = 16, .round_rows = 48, .rails = 2, .drafts = 1, .replay_floor = 0, .pool = 1 << 21 };
+    var buf: [1024]u8 = undefined;
+    var lead = served;
+    lead.idx_split = 32768;
+    try std.testing.expectEqualStrings("", lead.differ(lead, 2, &buf));
+    try std.testing.expectEqualStrings("rank 2 splits the keyed indexer rows from 0 columns and rank 0 from 32768 (TF_DS_IDX_SPLIT, 0: unset): set the same on every rank", served.differ(lead, 2, &buf));
+    try std.testing.expectEqual(@as(usize, 40), @sizeOf(Settings)); // rank 0's frame: as before (idx_split took the pad)
+}
+
+test "rank 0's settings go with NCCL's id: the follower answers, and an older rank 0's id alone is taken as before" {
+    const io = std.testing.io;
+    const served: Settings = .{ .world = 2, .streams = 8, .round_rows = 16, .rails = 0, .drafts = 1, .replay_floor = 1, .pool = 1 << 19 };
+    var four = served;
+    four.streams = 4;
+    const Case = struct { lead: ?Settings, follower: ?Settings, differs: bool };
+    const cases = [_]Case{
+        .{ .lead = served, .follower = served, .differs = false },
+        .{ .lead = served, .follower = four, .differs = true },
+        .{ .lead = null, .follower = four, .differs = false }, // an older rank 0: the id alone, nothing to check
+    };
+    const base: u16 = 39500 + @as(u16, @intCast(@mod(std.Io.Timestamp.now(io, .awake).nanoseconds, 400)));
+    for (cases, 0..) |cs, k| {
+        const Peer = struct {
+            id: [128]u8 = undefined,
+            why: [1024]u8 = undefined,
+            said: []const u8 = "",
+            err: ?anyerror = null,
+            fn run(p: *@This(), port: u16, mine: ?Settings) void {
+                var f: Fan = .{};
+                f.links[0] = Link.connect(std.testing.io, .{ 127, 0, 0, 1 }, port, 10) catch |e| {
+                    p.err = e;
+                    return;
+                };
+                defer f.close();
+                p.said = f.follow(1, &p.id, mine, &p.why) catch |e| {
+                    p.err = e;
+                    return;
+                };
+            }
+        };
+        const port = base + @as(u16, @intCast(k));
+        var peer: Peer = .{};
+        const t = try std.Thread.spawn(.{}, Peer.run, .{ &peer, port, cs.follower });
+        var f: Fan = .{};
+        f.links[0] = Link.listen(.{ 127, 0, 0, 1 }, port) catch |e| {
+            t.join();
+            return e;
+        };
+        var id: [128]u8 = undefined;
+        for (&id, 0..) |*b, i| b.* = @intCast(i);
+        var why: [1024]u8 = undefined;
+        const heard = f.lead(&id, cs.lead, &why);
+        t.join();
+        f.close();
+        try std.testing.expect(peer.err == null);
+        try std.testing.expectEqualSlices(u8, &id, &peer.id);
+        try std.testing.expectEqualStrings(peer.said, try heard);
+        try std.testing.expectEqual(cs.differs, peer.said.len > 0);
+        if (cs.differs) try std.testing.expect(std.mem.indexOf(u8, peer.said, "--streams 8") != null);
+    }
 }

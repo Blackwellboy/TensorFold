@@ -106,7 +106,8 @@ pub fn profile(e: *Engine, depth: u32, reps: usize, only: bool, parts: bool) !vo
     const c = &e.c;
     const D = c.hidden;
     const d: u32 = if (e.w.mtp == null) 0 else @min(depth, st.max_rows - 1);
-    const R = d + 1;
+    const wide = if (std.c.getenv("GLM_PROFILE_ROWS")) |v| std.fmt.parseInt(u32, std.mem.span(v), 10) catch 1 else 1; // a copy window's rows, without the MTP head
+    const R = if (d == 0) std.math.clamp(wide, 1, st.max_rows) else d + 1;
     const pool = mtl.objc.Pool.push();
     defer pool.pop();
     if (e.s.pos + R + 1 > e.s.cap) return error.ContextFull;
@@ -157,6 +158,7 @@ pub fn checkMatmul(e: *Engine, prompt: []const u32) !void {
         .kda => |*a| a,
         .mla => return error.NotKda,
     };
+    if (!@import("wide.zig").native(a.in_proj)) return error.UnsupportedWidth; // the 4/64 product's comparison only
     const pool = mtl.objc.Pool.push();
     defer pool.pop();
     e.sync();
@@ -166,7 +168,7 @@ pub fn checkMatmul(e: *Engine, prompt: []const u32) !void {
     const out = try e.arena.buffer(@as(usize, rows) * N * 2);
     var x = e.ctx();
     const b = e.begin();
-    fwd.embed(&x, b.enc, e.prompt_ids, rows);
+    fwd.embed(&x, b.enc, e.prompt_ids, rows, 0);
     fwd.boundary(&x, b.enc, rows, false, L.hc.?[0], L.in_norm);
     fwd.qmv(&x, b.enc, e.k.qmv_kda_in, e.sc.normed, a.in_proj, out, rows);
     affine_mm.rowSums(b.enc, e.k.mm_bf16, 64, e.sc.normed, pr.sums, rows, a.in_proj.k);
@@ -188,14 +190,14 @@ pub fn checkMatmul(e: *Engine, prompt: []const u32) !void {
 pub fn profilePrompt(e: *Engine, prompt: []const u32, reps: usize, only: bool, parts: bool) !void {
     const pr = &(e.pr orelse return error.NoPromptPath);
     const C = fwd.Class;
-    const rows: u32 = @intCast(@min(prompt.len, prompt_mod.max_rows));
+    const rows: u32 = @intCast(@min(prompt.len, pr.rows));
     if (rows + 1 > e.s.cap) return error.ContextFull;
     const pool = mtl.objc.Pool.push();
     defer pool.pop();
     e.sync();
     @memcpy(Engine.u32s(e.prompt_ids, rows), prompt[0..rows]);
     const P = fwd.Part;
-    const classes = if (parts) [_]u32{ P.bit("mla_proj"), P.bit("mla_cache"), P.bit("mla_absorb"), P.bit("mla_select"), P.bit("mla_attn"), P.bit("mla_unabs"), P.bit("mla_out"), 0, 0, 0 } else [_]u32{ C.hc, C.kda, C.mla, C.dense, C.route, C.routed, C.shared, C.exchange, C.combine, C.ends };
+    const classes = if (parts) [_]u32{ P.bit("mla_proj"), P.bit("mla_cache"), P.bit("mla_absorb"), P.bit("mla_select"), P.bit("mla_attn"), P.bit("mla_unabs"), P.bit("mla_out"), P.bit("kda_in"), P.bit("kda_pre"), P.bit("kda_scan"), P.bit("kda_post"), P.bit("kda_out") } else [_]u32{ C.hc, C.kda, C.mla, C.dense, C.route, C.routed, C.shared, C.exchange, C.combine, C.ends, 0, 0 };
     var all: u32 = 0;
     for (classes) |m| all |= m;
     const times = try e.gpa.alloc(f64, reps);
