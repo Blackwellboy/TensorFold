@@ -152,6 +152,52 @@ fn markEnds(marks: []const u32, at: usize) bool {
     return false;
 }
 
+/// The first extent of `size` in [0, cap) clear of `live` and of the kept states ([base, at, end] each): clear of their
+/// whole extents (rows and tail) where one fits so, else of their rows only.
+pub fn placeSoft(gpa: std.mem.Allocator, live: []const [2]usize, kept: []const [3]usize, size: usize, cap: usize) !?usize {
+    var used: std.ArrayList([2]usize) = .empty;
+    defer used.deinit(gpa);
+    try used.appendSlice(gpa, live);
+    for (kept) |k| try used.append(gpa, .{ k[0], @max(k[2], k[0] + k[1]) });
+    if (place(used.items, size, cap)) |b| return b;
+    used.shrinkRetainingCapacity(live.len);
+    for (kept) |k| try used.append(gpa, .{ k[0], k[0] + k[1] });
+    return place(used.items, size, cap);
+}
+
+test "a kept state's tail stays free while a placement fits elsewhere" {
+    const c = model.chunk_rows;
+    const gpa = std.testing.allocator;
+    const kept = [_][3]usize{.{ 0, 4 * c, 5 * c }}; // rows [0, 4c), its stream's extent to 5c
+    try std.testing.expectEqual(@as(?usize, 5 * c), try placeSoft(gpa, &.{}, &kept, 4 * c, 16 * c));
+    // no room clear of the tail: the rows alone are held back
+    const live = [_][2]usize{.{ 9 * c, 16 * c }};
+    try std.testing.expectEqual(@as(?usize, 4 * c), try placeSoft(gpa, &live, &kept, 5 * c, 16 * c));
+    try std.testing.expectEqual(@as(?usize, null), try placeSoft(gpa, &live, &kept, 6 * c, 16 * c));
+}
+
+/// Whether, with an extent of `size` at `b` taken besides `used`, another extent of `size` still fits in [0, cap).
+pub fn roomAfter(gpa: std.mem.Allocator, used: []const [2]usize, b: usize, size: usize, cap: usize) !bool {
+    const all = try gpa.alloc([2]usize, used.len + 1);
+    defer gpa.free(all);
+    @memcpy(all[0..used.len], used);
+    all[used.len] = .{ b, b + size };
+    return place(all, size, cap) != null;
+}
+
+test "a copy that fills the pool leaves no room for another request of its size" {
+    const c = model.chunk_rows;
+    // three live extents of 4 chunks in a 16-chunk pool: a fourth fits, and leaves no room for a fifth
+    const used = [_][2]usize{ .{ 0, 4 * c }, .{ 4 * c, 8 * c }, .{ 8 * c, 12 * c } };
+    const gpa = std.testing.allocator;
+    const b = place(&used, 4 * c, 16 * c).?;
+    try std.testing.expectEqual(@as(usize, 12 * c), b);
+    try std.testing.expect(!try roomAfter(gpa, &used, b, 4 * c, 16 * c));
+    // two live extents: the third leaves room for a fourth
+    const b2 = place(used[0..2], 4 * c, 16 * c).?;
+    try std.testing.expect(try roomAfter(gpa, used[0..2], b2, 4 * c, 16 * c));
+}
+
 pub fn place(used: []const [2]usize, size: usize, cap: usize) ?usize {
     var base: usize = 0;
     while (base + size <= cap) {
@@ -218,7 +264,19 @@ extern "c" fn exp(x: f64) f64;
 /// replay): the slot's own part on the device (Model.snapCopy), and the extent its compressed rows stay in,
 /// [base, base + at), held back from placement while it lives. Stale: a placement needed that room (its restore fails
 /// and the prompt runs from 0).
-pub const Snap = struct { id: u64, at: usize, base: usize, buf: cuda.DeviceBuffer, stale: bool = false };
+pub const Snap = struct {
+    id: u64,
+    at: usize,
+    base: usize,
+    buf: cuda.DeviceBuffer,
+    stale: bool = false,
+    wanted: u64 = 0, // when a request first waited for the live stream that holds these rows (placeKept; 0: none)
+    end: usize = 0, // the extent end of the stream that kept it (placement holds [base, end) back while room allows)
+};
+
+/// How long a request waits for the live stream that holds the kept state it resumes from to end (then it resumes
+/// in place and every kept state stays) before other kept states give their room for a copy of it.
+const held_wait_ns: u64 = 10 * std.time.ns_per_s;
 
 /// First tokens a handle names (each prompt's draw, read back right after its prefill).
 const ring = 1024;
@@ -374,10 +432,17 @@ pub const Lanes = struct {
             // (a kept state knows no images: a prompt with them runs whole and keeps nothing)
             if (s.images.len == 0 and self.usable(sn, len)) {
                 kept = sn;
-                moved = sn.base + size > m.pool_cap or clashes(taken[0..nt], sn.base, sn.base + size);
+                // in place unless the extent runs past the pool, a live stream holds it, or another kept state has
+                // rows past the kept ones (resuming there would stale it: the rows go to a free extent instead, as
+                // the Python lane's _place resumes "here" only in a free extent)
+                moved = sn.base + size > m.pool_cap or clashes(taken[0..nt], sn.base, sn.base + size) or self.keptOver(sn.base + sn.at, sn.base + size, sn);
             } else s.reuse_failed = true;
         }
-        const base = if (kept != null and !moved) kept.?.base else try self.placeKept(taken[0..nt], size);
+        const base = if (kept != null and !moved) kept.?.base else try self.placeKept(taken[0..nt], size, kept);
+        if (kept) |sn| {
+            sn.wanted = 0;
+            if (!moved) sn.end = @max(sn.end, base + size); // its extent now: the next resume in place finds it held
+        }
         if (kept) |sn| if (moved and sn.stale) { // the placement needed the kept rows' room: the prompt runs from 0
             kept = null;
             s.reuse_failed = true;
@@ -674,22 +739,54 @@ pub const Lanes = struct {
         return !sn.stale and sn.at > 0 and sn.at < len and sn.at % model.chunk_rows == 0 and sn.at <= len -| self.m.cfg.window;
     }
 
-    /// The first extent that fits around the live streams and the kept states; the oldest kept states go stale
-    /// until it does.
-    fn placeKept(self: *Lanes, live: []const [2]usize, size: usize) !usize {
+    /// The first extent that fits around the live streams and the kept states. Kept states give their room oldest
+    /// first and `source` (the state this prompt resumes from, its rows copied here) last, as the Python lane's _place
+    /// takes the oldest other kept prompt before the source; a state whose rows lie in a live stream's extent gives
+    /// none (that stream holds the room) and stays. When a live stream holds `source`, the request first waits up to
+    /// held_wait_ns for that stream to end (error.ContextFull: the host tries it again; it then resumes in place) if
+    /// the copy needs another state's room or would leave none for another request of its size: a copy that fills the
+    /// pool makes the next prompt evict a kept state (the 5 x 500K check with the duplicate admitted fourth). Kept
+    /// states hold their stream's whole extent back while a placement still fits so (placeSoft): its tail stays free
+    /// for the resume in place, which then stales nothing.
+    fn placeKept(self: *Lanes, live: []const [2]usize, size: usize, source: ?*Snap) !usize {
         const gpa = self.gpa;
-        var used: std.ArrayList([2]usize) = .empty;
-        defer used.deinit(gpa);
+        var kept: std.ArrayList([3]usize) = .empty;
+        defer kept.deinit(gpa);
+        var rows: std.ArrayList([2]usize) = .empty;
+        defer rows.deinit(gpa);
+        const held = if (source) |sn| !sn.stale and clashes(live, sn.base, sn.base + sn.at) else false;
         while (true) {
-            used.clearRetainingCapacity();
-            try used.appendSlice(gpa, live);
-            for (self.snaps.items) |sn| if (!sn.stale) try used.append(gpa, .{ sn.base, sn.base + sn.at });
-            if (place(used.items, size, self.m.pool_cap)) |b| return b;
-            const oldest = for (self.snaps.items) |sn| {
-                if (!sn.stale) break sn;
-            } else return error.ContextFull;
-            oldest.stale = true;
+            kept.clearRetainingCapacity();
+            rows.clearRetainingCapacity();
+            try rows.appendSlice(gpa, live);
+            for (self.snaps.items) |sn| if (!sn.stale) {
+                try kept.append(gpa, .{ sn.base, sn.at, sn.end });
+                try rows.append(gpa, .{ sn.base, sn.base + sn.at });
+            };
+            const got = try placeSoft(gpa, live, kept.items, size, self.m.pool_cap);
+            if (held and self.patient(source.?)) {
+                const b = got orelse return error.ContextFull;
+                return if (try roomAfter(gpa, rows.items, b, size, self.m.pool_cap)) b else error.ContextFull;
+            }
+            if (got) |b| return b;
+            const victim = for (self.snaps.items) |sn| {
+                if (!sn.stale and sn != source and !clashes(live, sn.base, sn.base + sn.at)) break sn;
+            } else if (source) |sn| (if (!sn.stale and !clashes(live, sn.base, sn.base + sn.at)) sn else return error.ContextFull) else return error.ContextFull;
+            victim.stale = true;
         }
+    }
+
+    /// Whether a kept state other than `except` and its siblings (the same stream's other marks) has rows in [lo, hi).
+    fn keptOver(self: *const Lanes, lo: usize, hi: usize, except: *const Snap) bool {
+        for (self.snaps.items) |sn| if (sn != except and !sn.stale and sn.base != except.base and sn.base < hi and lo < sn.base + sn.at) return true;
+        return false;
+    }
+
+    /// Whether a request still waits for the live stream that holds `sn` (held_wait_ns from its first wait).
+    fn patient(self: *const Lanes, sn: *Snap) bool {
+        const t = self.m.now();
+        if (sn.wanted == 0) sn.wanted = t;
+        return t - sn.wanted < held_wait_ns;
     }
 
     /// Kept states with rows in [lo, hi) go stale (a stream writes there), `except` aside.
@@ -713,7 +810,7 @@ pub const Lanes = struct {
         if (at == 0 or at % model.chunk_rows != 0 or at > s.prompt_len -| self.m.cfg.window) return error.NotAChunkEnd;
         const sn = try self.gpa.create(Snap);
         errdefer self.gpa.destroy(sn);
-        sn.* = .{ .id = self.next_snap, .at = at, .base = l.base, .buf = try cuda.DeviceBuffer.alloc(self.m.ctx.d, self.m.snapBytes()) };
+        sn.* = .{ .id = self.next_snap, .at = at, .base = l.base, .end = l.end, .buf = try cuda.DeviceBuffer.alloc(self.m.ctx.d, self.m.snapBytes()) };
         errdefer sn.buf.free();
         try self.snaps.append(self.gpa, sn);
         self.next_snap += 1;
@@ -978,4 +1075,33 @@ test "greedy draws take the first largest logit" {
     const row = [_]f32{ 0.5, 2.0, -1.0, 2.0 };
     try std.testing.expectEqual(@as(u32, 1), try draw(&row, 9, null));
     try std.testing.expectEqual(@as(u32, 1), try draw(&row, 9, .{ .seed = 3, .temperature = 0 }));
+}
+
+test "retained histories preserve their replay and output reservations (PR #10: eight 100K histories)" {
+    var m: Model = undefined;
+    m.pool_cap = 1 << 20;
+    var ln: Lanes = .{ .gpa = std.testing.allocator, .m = &m, .peer = null };
+    defer ln.snaps.deinit(std.testing.allocator);
+    var snapshots: [8]Snap = undefined;
+    for (&snapshots, 0..) |*sn, i| {
+        const base = try ln.placeKept(&.{}, 102400, null);
+        try std.testing.expectEqual(i * 102400, base);
+        sn.* = .{ .id = i, .at = 98304, .base = base, .end = base + 102400, .buf = undefined };
+        try ln.snaps.append(std.testing.allocator, sn);
+    }
+    // All eight 100K histories can resume within their reservations without invalidating a neighbor.
+    for (&snapshots) |*sn| {
+        try std.testing.expect(!ln.keptOver(sn.base + sn.at, sn.end, sn));
+        ln.staleOver(sn.base + sn.at, sn.end, sn);
+    }
+    for (snapshots) |sn| try std.testing.expect(!sn.stale);
+    // A larger continuation relocates into free room instead of overwriting the next cached prefix.
+    try std.testing.expect(ln.keptOver(snapshots[0].at, 104448, &snapshots[0]));
+    try std.testing.expectEqual(@as(usize, 819200), try ln.placeKept(&.{}, 104448, null));
+    // At genuine capacity pressure, kept states may still be evicted; a live range never is.
+    const live = [_][2]usize{.{ 0, 102400 }};
+    try std.testing.expectEqual(@as(usize, 102400), try ln.placeKept(&live, 409600, null));
+    try std.testing.expect(ln.snaps.items[1].stale and ln.snaps.items[4].stale);
+    try std.testing.expect(!ln.snaps.items[5].stale);
+    try std.testing.expect(!ln.snaps.items[0].stale); // its rows lie in the live stream: that stream holds the room
 }
