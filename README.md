@@ -3,10 +3,10 @@
 > (MIT), our EXL3 quant of [deepseek-ai/DeepSeek-V4.1-Flash-1017](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017)
 > (MIT). Releases up to v0.1.1 served [Mia-AiLab/DeepSeek-V4.1-Flash-EXL3-2.9bpw](https://huggingface.co/Mia-AiLab/DeepSeek-V4.1-Flash-EXL3-2.9bpw)
 > (MIT), an EXL3 quant of [deepseek-ai/DeepSeek-V4.1-Flash](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash).
-> The branch adds a `dsv41` family to TensorFold 1.0.2's native engine: a four-node split whose replies equal the
-> two-node family's token for token in our gates, image input, up to 1,048,576 tokens a request in a shared
-> 2,097,152-position window with kept-prompt reuse, and exact DSpark speculative decoding. Launch, measured numbers,
-> gates and the kernel kit are in the recipe, [bertholomus/deepseek-v4.1-tensorfold-tp4-4xgb10](https://github.com/bertholomus/deepseek-v4.1-tensorfold-tp4-4xgb10).
+> The branch adds a `dsv41` family to TensorFold 1.0.12's native engine: a four-node split (on the 2.9 bpw weights its
+> replies equal the two-node family's token for token in our gates), image input, up to 1,048,576 tokens a request in
+> a shared 2,097,152-position window with kept-prompt reuse, and exact DSpark speculative decoding. Launch, measured
+> numbers, gates and the kernel kit are in the recipe, [bertholomus/deepseek-v4.1-tensorfold-tp4-4xgb10](https://github.com/bertholomus/deepseek-v4.1-tensorfold-tp4-4xgb10).
 > An optional [neighbor transport](docs/recipes/deepseek-v41-neighbor.md) supports adjacent-edge RDMA on a physical ring.
 > `tools/dsv41-zig/inputs/` makes each node's weight file and token map from the checkpoint; `tools/dsv41-zig/kit/`
 > makes and checks the kit's generated files. See NOTICE and ATTRIBUTION.md. This fork is not affiliated with or
