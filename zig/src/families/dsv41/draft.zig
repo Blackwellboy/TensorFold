@@ -105,6 +105,14 @@ const MarkovGather = struct {
 
     fn run(ctx: *anyopaque, send: u64, rows: usize) anyerror!u64 {
         const g: *MarkovGather = @ptrCast(@alignCast(ctx));
+        if (g.e.two) |tw| if (tw.neighbor_gather) |ng| {
+            const neighbor = @import("neighbor.zig");
+            const bytes = try std.math.mul(usize, rows, 16);
+            if (neighbor.eligible(bytes)) {
+                try ng.gather(g.e.s, send, g.dst, bytes);
+                return g.dst;
+            }
+        };
         try g.e.gatherF32(send, g.dst, rows * 4);
         return g.dst;
     }

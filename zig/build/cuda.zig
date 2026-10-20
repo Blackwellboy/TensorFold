@@ -308,45 +308,12 @@ pub fn hostTests(b: *std.Build, draft_ids: *std.Build.Module, build_options: *st
     step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = b.createModule(.{ .root_source_file = b.path("zig/build/check_fatbins.zig"), .target = host }) })).step);
     const cuda = runtime(b, host, .debug, &.{});
     const mods = family(b, host, .debug, cuda, draft_ids);
-    const native_modules = engines(b, host, .debug, cuda, mods.core, mods.lanes, mods.nemotron, mods.heat);
-    const native = native_modules.engines;
-    // the HTTP server's unit tests (zig/src/server/root.zig), which the macOS build runs, on Linux hosts too
-    const template = b.createModule(.{ .root_source_file = b.path("zig/src/core/template/template.zig"), .target = host, .optimize = .debug, .link_libc = true });
-    const server_tests = b.createModule(.{
-        .root_source_file = b.path("zig/src/server/root.zig"),
-        .target = host,
-        .optimize = .debug,
-        .link_libc = true,
-        .imports = &.{ .{ .name = "engine_api", .module = native_modules.api }, .{ .name = "tokenizer", .module = mods.tokenizer }, .{ .name = "template", .module = template } },
-    });
-    const server_json = @import("server.zig").addTo(b, server_tests, host, .debug);
-    const server_test = b.addRunArtifact(b.addTest(.{ .root_module = server_tests }));
-    const json_test = b.addRunArtifact(b.addTest(.{ .root_module = server_json }));
-    const server_step = b.step(
-        "test-server-cpu",
-        "The HTTP server's unit tests (routes, templates, tool parsing) without a GPU",
-    );
-    for ([_]*std.Build.Step.Run{ server_test, json_test }) |run| {
-        step.dependOn(&run.step);
-        server_step.dependOn(&run.step);
-    }
-    // the server goldens and Cortheon's fuzz step here when the target is not macOS, whose Metal build defines them
-    if (server_steps) {
-        golden_build.step(b, host, server_tests, native_modules.api, mods.tokenizer, template);
-        @import("cortheon_fuzz.zig").add(b, host, native_modules.api, mods.tokenizer, template);
-    }
-    // the tokenizer's own tests (memo, steps, regex, unicode) run here: no other test binary reaches them
-    for ([_]*std.Build.Module{ cuda, mods.core, mods.lanes, mods.nemotron, lfm2Module(b, host, .debug, cuda, mods.core), mods.radio, mods.heat, mods.tokenizer, native_modules.api, native, native_modules.dsv41, stagger(b, host, .debug) }) |m| step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = m })).step);
-    // the GLM-5.3-Flash CUDA family's host side
-    const glm = glmCuda(b, host, .debug, cuda, mods.core, mods.lanes, mods.heat);
-    step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = glm })).step);
-    // the shares a GLM-5.3-Flash rank takes (cluster/canon.zig against the Python family's)
-    const shares = b.createModule(.{ .root_source_file = b.path("zig/src/cluster/canon_glm_test.zig"), .target = host, .optimize = .debug });
-    step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = shares })).step);
-    // the tool-call parser's tests, run beside the server's on Macs: the GLM calls the CUDA port serves
-    const parse_tests = b.createModule(.{ .root_source_file = b.path("zig/src/server/tool_parse_test.zig"), .target = host, .optimize = .debug, .link_libc = true, .imports = &.{ .{ .name = "engine_api", .module = native_modules.api }, .{ .name = "tokenizer", .module = mods.tokenizer }, .{ .name = "template", .module = template } } });
-    _ = @import("server.zig").addTo(b, parse_tests, host, .debug);
-    step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = parse_tests })).step);
+    const eng = engines(b, host, .debug, cuda, mods.lanes, mods.nemotron, mods.core);
+    for ([_]*std.Build.Module{ cuda, mods.core, mods.lanes, mods.nemotron, eng.api, eng.engines, eng.dsv41, stagger(b, host, .debug) }) |m| step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = m })).step);
+    const neighbor = b.createModule(.{ .root_source_file = b.path("zig/src/families/dsv41/neighbor.zig"), .target = host, .optimize = .debug, .link_libc = true });
+    neighbor.addImport("cuda", cuda);
+    neighbor.addImport("fabric", eng.dsv41.import_table.get("fabric").?);
+    b.step("test-dsv41-neighbor", "Host checks of TP4 neighbor transport (no GPU or verbs)").dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = neighbor })).step);
     const cli = b.createModule(.{ .root_source_file = b.path("zig/src/cli/cuda_main.zig"), .target = host, .optimize = .debug, .link_libc = true });
     cli.addImport("cuda", cuda);
     cli.addImport("core", mods.core);

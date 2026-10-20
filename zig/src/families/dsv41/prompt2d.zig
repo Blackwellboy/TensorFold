@@ -12,6 +12,7 @@
 //! prompt.zig takes it through thin hooks behind Engine.two; a TP2 engine has none and runs as before. The decode
 //! rounds' part is round2d.zig's, on this node state.
 const std = @import("std");
+const neighbor = @import("neighbor.zig");
 const cuda = @import("cuda");
 const Config = @import("config.zig").Config;
 const plan = @import("plan.zig");
@@ -183,6 +184,7 @@ fn len(r: ?[2]usize) usize {
 /// A 2D node's part of the prompt path and the decode rounds: the pairs' widths of each split output and the exchange
 /// buffers.
 pub const Two = struct {
+    neighbor_gather: ?*const neighbor.Gather,
     r: usize,
     p: usize,
     heads: usize, // the heads here (its pair's half of the rank's)
@@ -215,6 +217,7 @@ pub const Two = struct {
         const x0 = s0.expertParts(c.*);
         const x1 = s1.expertParts(c.*);
         var t: Two = undefined;
+        t.neighbor_gather = null;
         t.r = s.rank;
         t.p = pp;
         t.heads = s.headSpan(c.*)[1];
@@ -286,8 +289,19 @@ pub const Two = struct {
                 else => return err,
             }
         }
+        const count = try std.math.mul(usize, rows, width);
+        if (t.neighbor_gather) |ng| {
+            const bytes = try std.math.mul(usize, count, 2);
+            if (neighbor.eligible(bytes)) {
+                if (bytes > t.part_bytes) return error.PartTooBig;
+                try ng.relay(e.s, mine, t.peer, bytes);
+            } else {
+                try neighbor.forward(e.comm, mine, t.peer, @splat(count), .f16, t.pad, t.part_bytes, e.s);
+            }
+            return;
+        }
         const g: u32 = @intCast(t.r + 2 * t.p);
-        try e.comm.exchange(mine, rows * width, t.peer, rows * width, .f16, g ^ 2, e.s);
+        try e.comm.exchange(mine, count, t.peer, count, .f16, g ^ 2, e.s);
     }
 
     /// moe_2d's parity experts after the main gate / up and the rest's: the packs exchanged with the column partner,
@@ -311,7 +325,14 @@ pub const Two = struct {
             try e.ops.copyRows(e.s, src, w[t.p] * esize, t.pad, wmax * esize, w[t.p] * esize, n);
             send = t.pad;
         }
-        try e.comm.allGather(send, t.parts, n * wmax * esize, .u8, e.s);
+        const bytes = n * wmax * esize;
+        if (t.neighbor_gather) |ng| {
+            if (neighbor.eligible(bytes)) {
+                try ng.gather(e.s, send, t.parts, bytes);
+                return wmax;
+            }
+        }
+        try e.comm.allGather(send, t.parts, bytes, .u8, e.s);
         return wmax;
     }
 
@@ -328,6 +349,14 @@ pub const Two = struct {
     /// [2, n, w0 + w1]: rank r's partial, pair 0's columns then pair 1's, for every r.
     pub fn quarters(t: *const Two, e: *const prompt.Engine, src: u64, dst: u64, n: usize, w: [2]usize, esize: usize) !void {
         if (t.rings) |rs| if (n < 64 and try ringed(rs.quarters(e.s, src, dst, n, w, esize))) return;
+        if (t.neighbor_gather) |ng| {
+            const width = try std.math.mul(usize, w[0], esize);
+            const bytes = try std.math.mul(usize, n, width);
+            if (w[0] == w[1] and width % 16 == 0 and neighbor.eligible(bytes)) {
+                try ng.quarters(e.s, src, dst, n, width);
+                return;
+            }
+        }
         const wmax = try t.allParts(e, src, n, w, esize);
         const row = (w[0] + w[1]) * esize;
         for (0..4) |g| {
@@ -354,6 +383,13 @@ pub const Two = struct {
     /// (Comm2D.gather4(x)[2p:2p + 2]).
     pub fn pairGather(t: *const Two, e: *const prompt.Engine, src: u64, dst: u64, n: usize, width: usize, esize: usize) !void {
         if (t.rings) |rs| if (try ringed(rs.pairGather(e.s, src, dst, n, width, esize))) return;
+        if (t.neighbor_gather) |ng| {
+            const bytes = try std.math.mul(usize, n, try std.math.mul(usize, width, esize));
+            if (neighbor.eligible(bytes)) {
+                try ng.pair(e.s, src, dst, bytes);
+                return;
+            }
+        }
         const wmax = try t.allParts(e, src, n, .{ width, width }, esize);
         try e.ops.copyRows(e.s, t.parts + 2 * t.p * n * wmax * esize, wmax * esize, dst, width * esize, width * esize, 2 * n);
     }
@@ -396,7 +432,11 @@ pub const Two = struct {
         const g: u32 = @intCast(t.r + 2 * t.p);
         try e.comm.exchange(src, mine, other, mine, .f32, g ^ 1, e.s);
         try e.ops.add2Bf16(e.s, src, other, half, mine);
-        try e.comm.exchange(half, mine, their, n * w[1 - t.p], .bf16, g ^ 2, e.s);
+        if (t.neighbor_gather != null) {
+            try neighbor.forward(e.comm, half, their, .{ n * w[0], n * w[0], n * w[1], n * w[1] }, .bf16, t.pad, t.part_bytes, e.s);
+        } else {
+            try e.comm.exchange(half, mine, their, n * w[1 - t.p], .bf16, g ^ 2, e.s);
+        }
         const row = (w[0] + w[1]) * 2;
         for (0..2) |pg| {
             const from = if (pg == t.p) half else their;
