@@ -40,6 +40,7 @@ pub const exl3_experts2d = @import("exl3_experts2d.zig");
 pub const exl3_experts2d_rec = @import("exl3_experts2d_rec.zig");
 pub const prompt2d = @import("prompt2d.zig");
 pub const ring2d = @import("ring2d.zig");
+pub const neighbor = @import("neighbor.zig");
 pub const text = @import("text.zig");
 pub const round = @import("round.zig");
 pub const round2d = @import("round2d.zig");
@@ -87,6 +88,7 @@ test {
     refAll(exl3_experts2d_rec);
     refAll(prompt2d);
     refAll(ring2d);
+    refAll(neighbor);
     refAll(text);
     refAll(round);
     refAll(round2d);

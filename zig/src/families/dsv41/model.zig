@@ -28,6 +28,7 @@ const comm_mod = @import("comm.zig");
 const link = @import("link.zig");
 const ring2d = @import("ring2d.zig");
 const rdma = @import("rdma.zig");
+const neighbor = @import("neighbor.zig");
 
 /// The served prompt chunk (TF_DS_PREFILL_CHUNK): a prompt runs in chunks that start at its multiples.
 pub const chunk_rows = 2048;
@@ -157,6 +158,7 @@ pub const Model = struct {
     // world 4: the 2D split's exchanges (prompt2d.zig, TP4's), with the RDMA rings when asked
     two: ?prompt2d.Two = null,
     rdma_rings: ?ring2d.Rings = null,
+    neighbor_gather: ?neighbor.Gather = null,
 
     /// Loads rank o.rank's weights from the lane's rank cache, links the ranks (rank 0 listens on o.port), opens NCCL
     /// and sets up every buffer. Needs `ctx` current on this thread.
@@ -209,6 +211,7 @@ pub const Model = struct {
         m.pgraphs = null;
         m.two = null;
         m.rdma_rings = null;
+        m.neighbor_gather = null;
         const d = ctx.d;
         m.cfg = try Config.read(a, io, o.model_dir);
         const c = &m.cfg;
@@ -229,6 +232,11 @@ pub const Model = struct {
         errdefer m.w.deinit();
         if (o.drafts and m.w.dspark == null) return error.NoDrafter;
 
+        const neighbor_rdma = try neighbor.configured();
+        if (neighbor_rdma and o.world != 4) return error.NotFourNodes;
+        if (neighbor_rdma and o.rdma_devices != null) return error.NeighborDisallowsStockRdma;
+        const neighbor_gid = if (neighbor_rdma) try neighbor.gidIndex() else 0;
+
         // the ranks' link and NCCL (rank 0 listens: rank 1 retries its connect while rank 0 loads)
         m.fan = try prompt2d.Fan.open(io, o.master, o.port, o.rank, o.world);
         errdefer m.fan.close();
@@ -241,6 +249,7 @@ pub const Model = struct {
             .drafts = @intFromBool(o.drafts),
             .replay_floor = @intFromBool(prompt.replay_floor),
             .idx_split = @intCast(prompt.split_from),
+            .neighbor_rdma = @intFromBool(neighbor_rdma),
             .pool = o.pool,
         });
         errdefer m.comm.deinit();
@@ -297,9 +306,15 @@ pub const Model = struct {
         errdefer m.arena.deinit();
         // world 4 (layer_main's setup): the 2D exchanges' buffers, and with rdma_devices their rings (whose infos go
         // round over NCCL world 4)
+        errdefer if (m.neighbor_gather) |*ng| ng.close(gpa);
         errdefer if (m.rdma_rings) |*x| x.close(gpa);
         if (sp.pair != null) {
             m.two = try prompt2d.Two.init(c, &m.w, &m.arena, sp, chunk_rows);
+            if (neighbor_rdma) {
+                m.rdma_mod = try cuda.Module.load(d, cuda.kernels.dsv41_rdma);
+                m.neighbor_gather = try neighbor.Gather.open(gpa, d, try rdma.Kernels.load(m.rdma_mod.?), o.rank, &m.comm, m.stream, neighbor_gid);
+                m.two.?.neighbor_gather = &m.neighbor_gather.?;
+            }
             if (o.rdma_devices) |devs| {
                 const image: []const u8 = if (o.rdma_kernels) |path|
                     try std.Io.Dir.cwd().readFileAllocOptions(io, path, a, .limited(1 << 26), .@"16", null)
@@ -340,7 +355,7 @@ pub const Model = struct {
                 m.dr.?.graphs = &m.pgraphs.?;
             }
         }
-        try m.stream.synchronize();
+        try m.synchronize();
         try d.check(d.api.cuCtxSynchronize(), "cuCtxSynchronize"); // the setup's legacy-stream copies too
 
         // Engram on the host: the compressed token map, the multipliers, the tables and 64 readers
@@ -402,6 +417,7 @@ pub const Model = struct {
         if (m.paio) |x| x.deinit();
         if (m.epool) |p| p.deinit(m.gpa);
         if (m.tables) |*t| t.close();
+        if (m.neighbor_gather) |*ng| ng.close(m.gpa);
         if (m.rdma_rings) |*r| r.close(m.gpa);
         m.blas.close();
         m.arena.deinit();
@@ -427,6 +443,11 @@ pub const Model = struct {
         m.stream.deinit();
         m.host.deinit();
         m.gpa.destroy(m);
+    }
+
+    fn synchronize(m: *Model) !void {
+        try m.stream.synchronize();
+        if (m.neighbor_gather) |*ng| try ng.check();
     }
 
     /// TP2's RDMA ring for the decode gathers: created on both ranks, the queue-pair infos exchanged over NCCL,
@@ -570,7 +591,7 @@ pub const Model = struct {
             }
             const d = m.ctx.d;
             try d.check(d.api.cuMemcpyHtoDAsync_v2(m.img_buf.?.ptr, rows.ptr, rows.len, m.stream.handle), "cuMemcpyHtoDAsync");
-            try m.stream.synchronize(); // (the caller's rows may go once this returns)
+            try m.synchronize(); // (the caller's rows may go once this returns)
         }
         m.spans.clearRetainingCapacity();
         try m.spans.appendSlice(m.gpa, spans);
@@ -634,7 +655,7 @@ pub const Model = struct {
                     // encoder-only: no synchronize either (as at the chunk's end below), so the next chunk's host steps
                     // run while this one's last layers do; the profile alone waits
                     if (pt) |t| {
-                        try m.stream.synchronize();
+                        try m.synchronize();
                         try t.finish();
                     }
                     return false;
@@ -694,7 +715,7 @@ pub const Model = struct {
         // at 2,048 rows) run while this chunk's kernels do; readers of the results (the prompt's logits) synchronize.
         // The profile (--profile 2) times a chunk to its end, so it alone waits.
         if (pt) |t| {
-            try m.stream.synchronize();
+            try m.synchronize();
             try t.finish();
         }
         return true;
@@ -711,12 +732,12 @@ pub const Model = struct {
     /// overwrites them). absorb[i]: window i's stream drafts.
     pub fn verify(m: *Model, rows: round.Rows, absorb: []const bool) !void {
         const e = &m.eng;
-        if (m.prof) try m.stream.synchronize(); // (the GPU idle, so the issue time shows whether the host keeps it fed)
+        if (m.prof) try m.synchronize(); // (the GPU idle, so the issue time shows whether the host keeps it fed)
         const t0 = m.now();
         try round.forward(e, &m.rd, &m.ch, &m.caches, m.rings, if (m.eh) |*x| x else null, &.{}, rows, m.pool_cap, null, if (m.graphs) |*g| g else null);
         if (m.prof) {
             m.t_enqueue = m.now() - t0;
-            try m.stream.synchronize();
+            try m.synchronize();
             m.t_forward = m.now() - t0;
             if (m.timer) |t| try t.finish();
             if (m.rd.clk != 0) {
@@ -744,7 +765,7 @@ pub const Model = struct {
             }
             if (n > 0) try dr.absorbMany(e, &m.ch, &m.dpool.?, items[0..n]);
         }
-        try m.stream.synchronize();
+        try m.synchronize();
         if (m.prof) m.t_absorb = m.now() - t1;
     }
 
@@ -782,14 +803,14 @@ pub const Model = struct {
     pub fn roundArgmax(m: *Model, R: usize) ![]const u32 {
         const d = m.ctx.d;
         try m.ops.argmaxRows(m.stream, m.rd.logits, m.vocab, m.vocab, R, m.amax);
-        try m.stream.synchronize();
+        try m.synchronize();
         try d.check(d.api.cuMemcpyDtoH_v2(&m.amax_host, m.amax, R * 4), "cuMemcpyDtoH");
         return m.amax_host[0..R];
     }
 
     pub fn roundLogits(m: *Model, R: usize) ![]const f32 {
         const d = m.ctx.d;
-        try m.stream.synchronize();
+        try m.synchronize();
         try d.check(d.api.cuMemcpyDtoH_v2(m.logits.ptr, m.rd.logits, R * m.vocab * 4), "cuMemcpyDtoH");
         return m.logits[0 .. R * m.vocab];
     }
@@ -797,7 +818,7 @@ pub const Model = struct {
     /// The prompt's logits on the host (after a fill's last chunk).
     pub fn promptLogitsHost(m: *Model) ![]const f32 {
         const d = m.ctx.d;
-        try m.stream.synchronize();
+        try m.synchronize();
         try d.check(d.api.cuMemcpyDtoH_v2(m.logits.ptr, m.ch.head_g, m.vocab * 4), "cuMemcpyDtoH");
         return m.logits[0..m.vocab];
     }

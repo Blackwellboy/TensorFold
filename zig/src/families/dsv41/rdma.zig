@@ -145,6 +145,7 @@ pub const Ring = struct {
     nd: u32 = 0,
     peers: [max_ranks]Peer = @splat(.{}),
     proxy: ?std.Thread = null,
+    failure_peer: ?*Ring = null,
     running: std.atomic.Value(bool) = .init(false),
     failed: std.atomic.Value(bool) = .init(false),
     why: [128]u8 = @splat(0),
@@ -310,6 +311,11 @@ pub const Ring = struct {
     }
 
     fn fail(r: *Ring, why: []const u8) void {
+        r.failLocal(why);
+        if (r.failure_peer) |peer| peer.failLocal(why);
+    }
+
+    fn failLocal(r: *Ring, why: []const u8) void {
         if (!r.failed.swap(true, .acq_rel)) {
             const n = @min(why.len, r.why.len - 1);
             @memcpy(r.why[0..n], why[0..n]);
@@ -518,4 +524,25 @@ test "every declaration compiles (the GPU and verbs paths run only on the nodes)
 test "the info a peer reads is a plain extern struct (it crosses the link as bytes)" {
     try std.testing.expectEqual(@as(usize, 128), @sizeOf(Info));
     try std.testing.expectEqual(@as(usize, 120), @offsetOf(Info, "recv"));
+}
+
+test "a failed neighbor stage releases both local stages' device waits" {
+    var first: Ring = undefined;
+    var second: Ring = undefined;
+    var first_meta: [32]u64 align(std.heap.page_size_min) = @splat(0);
+    var second_meta: [32]u64 align(std.heap.page_size_min) = @splat(0);
+    for ([_]*Ring{ &first, &second }, [_][]u64{ &first_meta, &second_meta }) |r, meta| {
+        r.s.slots = 4;
+        r.world = 2;
+        r.meta.mem = @alignCast(std.mem.sliceAsBytes(meta));
+        r.failed = .init(false);
+        r.why = @splat(0);
+    }
+    first.failure_peer = &second;
+    second.failure_peer = &first;
+    first.abort("peer failed");
+    try std.testing.expectEqualStrings("peer failed", first.failure().?);
+    try std.testing.expectEqualStrings("peer failed", second.failure().?);
+    try std.testing.expectEqual(@as(u64, 1), first.abortWord().*);
+    try std.testing.expectEqual(@as(u64, 1), second.abortWord().*);
 }

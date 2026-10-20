@@ -1,0 +1,66 @@
+# TP4 neighbor transport: host checks
+
+Local checks on 2026-10-20 UTC, macOS arm64, Zig 0.17.0. This change is based on
+`bertholomus/TensorFold` branch `deepseek-v41-zig-tp4` at
+`59402086381a42c74d53053443224eec2790b4c5`.
+
+The transport is opt-in through `TF_DS_NEIGHBOR_RDMA=1`; see the
+[configuration and dispatch contract](../../recipes/deepseek-v41-neighbor.md).
+These were the initial host-only checks. Subsequent exact-commit device and model
+results are recorded in the [hardware receipt](../dsv41-neighbor-hardware/README.md).
+
+| Check | Result |
+| --- | --- |
+| `zig build test-dsv41-neighbor --summary all` | PASS: 14 tests, 0 failures, 0 skips; no GPU/verbs execution |
+| `zig build test test-golden -Dcpu=apple_m1 --summary all` | Inherited compile failure at `dsv41/link.zig:23`: macOS `std.c.SO` has no `BUSY_POLL`; reproduced on the pinned base and candidate |
+| Frozen server corpus, from the same command | PASS on base and candidate: 312/319 equal, 7 known differences, 0 unexpected differences |
+| `zig build native -Dtarget=aarch64-linux-gnu.2.28 -Doptimize=fast --summary all` | PASS: Linux arm64 cross-build, without CUDA fatbins; not a runnable model qualification |
+| Linux arm64 `dsv41` host-test module | PASS: semantic compilation with `zig test -fno-emit-bin -Odebug -target aarch64-linux-gnu.2.28` and the build's CUDA/core/lanes/fabric modules; not executed |
+| `python3 tools/zig/lean_check.py` | Base: 848 files, 1,511 problems. Candidate: 849 files, 1,511 problems. Zero added findings; checker remains nonzero |
+| `zig fmt --check` on changed Zig files; `git diff --check` | PASS |
+
+The base host run reported 420/422 tests passed and two skips before the existing
+compile failure. The candidate reused unchanged successful test steps from that
+run and reported five newly run passes and one skip, with the same compile
+failure. The golden runner also logs an inherited allocator leak on both runs;
+its build step exits successfully. Neither complete host command is reported as
+a pass.
+
+The focused tests exercise host-side preconditions, startup-mode comparison,
+actual NCCL forwarding call sequencing with a recording API, and abort-word
+propagation. They do not validate device output, RDMA queue pairs, rail selection,
+CUDA graph execution, startup collectives on four machines, throughput, or model
+tokens. At this initial host-only stage, device/model gates remained pending. The linked
+hardware receipt records the subsequently tested subset and remaining limits.
+No fault, restart, or reboot gate was run.
+
+The earlier experimental implementation used source
+`b65c8b92d2403dfdefccf15a3b23ba609a4553e2`, a descendant of this pinned base, plus
+separate patches. Its device and serving results support the transport design;
+they are not measurements of this consolidated branch or its startup agreement.
+No unrelated model, server, forced-tool, kernel or deployment changes were ported.
+
+## v0.2.0 repeat and local CI checks
+
+Rebased onto `b65c8b92d2403dfdefccf15a3b23ba609a4553e2`; node-tested code
+`22ac1f72e9e74d3f38f7aa2136bcccb432828cf0`. Zig 0.17.0 focused tests passed
+15/15, including configurable GID parsing; all 124 DeepSeek-family tests passed,
+including both startup neighbor-mode mismatch directions. Lean findings were
+1,615 on base and head, zero new. Linux node validation completed 100/100 steps,
+1,007 newly run tests passed, two skipped; other groups were cached. Native build
+with the existing SM121 fatbins passed (SHA-256
+`4f69f434dfd56c968ddbc70e89ba05fe79de054dee74dd32fcae2a03cf6c76d0`).
+
+Local CI commands at `45af9710f6b78afbcdb198ade9db62c868ad54fe` (same production
+code; later edits are documentation only) used Zig 0.17.0, Node 22.23.2 and
+npm 10.9.8. Ubuntu 24.04 arm64: `zig build test` passed 88/88 steps, 1,683 tests,
+seven skips; kernel-contract 18/18 and fuzz 7/7 passed. Goldens: 309/319 equal,
+ten known differences, zero unexpected. Whitespace and lean differential passed.
+macOS 27.2 arm64: desktop typecheck and mobile verification passed; desktop tests
+passed 547/548, with unchanged `sandbox-git-control.test.ts` failing because the
+sandbox blocks Xcode's `libxcrun.dylib`. macOS Zig retained the `SO.BUSY_POLL`
+compile failure (1,958 passed, eight skipped). Full-tree formatting fails on five
+unchanged base files: `zig/src/server/effort_values_test.zig` and
+`zig/src/families/dsv41/{exl3_linear,round,tri_basic,split_bench_main}.zig`.
+GitHub jobs did not start due to billing/spending limits; these local platforms
+differ from its runner matrix. These are not claims that all CI checks pass.

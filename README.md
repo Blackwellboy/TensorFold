@@ -7,6 +7,7 @@
 > replies equal the two-node family's token for token in our gates), image input, up to 1,048,576 tokens a request in
 > a shared 2,097,152-position window with kept-prompt reuse, and exact DSpark speculative decoding. Launch, measured
 > numbers, gates and the kernel kit are in the recipe, [bertholomus/deepseek-v4.1-tensorfold-tp4-4xgb10](https://github.com/bertholomus/deepseek-v4.1-tensorfold-tp4-4xgb10).
+> An optional [neighbor transport](docs/recipes/deepseek-v41-neighbor.md) supports adjacent-edge RDMA on a physical ring.
 > `tools/dsv41-zig/inputs/` makes each node's weight file and token map from the checkpoint; `tools/dsv41-zig/kit/`
 > makes and checks the kit's generated files. See NOTICE and ATTRIBUTION.md. This fork is not affiliated with or
 > endorsed by DeepSeek, NVIDIA, the TensorFold authors or Mia-AiLab.

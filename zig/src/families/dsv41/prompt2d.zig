@@ -12,6 +12,7 @@
 //! prompt.zig takes it through thin hooks behind Engine.two; a TP2 engine has none and runs as before. The decode
 //! rounds' part is round2d.zig's, on this node state.
 const std = @import("std");
+const neighbor = @import("neighbor.zig");
 const cuda = @import("cuda");
 const Config = @import("config.zig").Config;
 const plan = @import("plan.zig");
@@ -143,6 +144,8 @@ pub const Settings = extern struct {
     drafts: u32, // the drafter (--drafts): the same
     replay_floor: u32, // TF_DS_REPLAY_FLOOR: the same
     idx_split: u32 = 0, // TF_DS_IDX_SPLIT (prompt.split_from): the same (the keyed indexer layers all-gather inside)
+    neighbor_rdma: u32 = 0, // TF_DS_NEIGHBOR_RDMA: the same exchange path on every rank
+    reserved: u32 = 0,
     pool: u64, // rank 0's --context (a follower's --pool): a follower's holds rank 0's
 
     pub const tag: u32 = 0x31345344; // "DS41"
@@ -167,6 +170,8 @@ pub const Settings = extern struct {
             w.print("{s}rank {d} has TF_DS_REPLAY_FLOOR={d} and rank 0 {d}: set the same on every rank", .{ sepIf(&w, sep), rank, mine.replay_floor, lead.replay_floor }) catch {};
         if (mine.idx_split != lead.idx_split)
             w.print("{s}rank {d} splits the keyed indexer rows from {d} columns and rank 0 from {d} (TF_DS_IDX_SPLIT, 0: unset): set the same on every rank", .{ sepIf(&w, sep), rank, mine.idx_split, lead.idx_split }) catch {};
+        if (mine.neighbor_rdma != lead.neighbor_rdma)
+            w.print("{s}rank {d} has TF_DS_NEIGHBOR_RDMA={d} and rank 0 {d}: set the same on every rank", .{ sepIf(&w, sep), rank, mine.neighbor_rdma, lead.neighbor_rdma }) catch {};
         return w.buffered();
     }
 
@@ -183,6 +188,7 @@ fn len(r: ?[2]usize) usize {
 /// A 2D node's part of the prompt path and the decode rounds: the pairs' widths of each split output and the exchange
 /// buffers.
 pub const Two = struct {
+    neighbor_gather: ?*const neighbor.Gather,
     r: usize,
     p: usize,
     heads: usize, // the heads here (its pair's half of the rank's)
@@ -215,6 +221,7 @@ pub const Two = struct {
         const x0 = s0.expertParts(c.*);
         const x1 = s1.expertParts(c.*);
         var t: Two = undefined;
+        t.neighbor_gather = null;
         t.r = s.rank;
         t.p = pp;
         t.heads = s.headSpan(c.*)[1];
@@ -286,8 +293,19 @@ pub const Two = struct {
                 else => return err,
             }
         }
+        const count = try std.math.mul(usize, rows, width);
+        if (t.neighbor_gather) |ng| {
+            const bytes = try std.math.mul(usize, count, 2);
+            if (neighbor.eligible(bytes)) {
+                if (bytes > t.part_bytes) return error.PartTooBig;
+                try ng.relay(e.s, mine, t.peer, bytes);
+            } else {
+                try neighbor.forward(e.comm, mine, t.peer, @splat(count), .f16, t.pad, t.part_bytes, e.s);
+            }
+            return;
+        }
         const g: u32 = @intCast(t.r + 2 * t.p);
-        try e.comm.exchange(mine, rows * width, t.peer, rows * width, .f16, g ^ 2, e.s);
+        try e.comm.exchange(mine, count, t.peer, count, .f16, g ^ 2, e.s);
     }
 
     /// moe_2d's parity experts after the main gate / up and the rest's: the packs exchanged with the column partner,
@@ -311,7 +329,14 @@ pub const Two = struct {
             try e.ops.copyRows(e.s, src, w[t.p] * esize, t.pad, wmax * esize, w[t.p] * esize, n);
             send = t.pad;
         }
-        try e.comm.allGather(send, t.parts, n * wmax * esize, .u8, e.s);
+        const bytes = n * wmax * esize;
+        if (t.neighbor_gather) |ng| {
+            if (neighbor.eligible(bytes)) {
+                try ng.gather(e.s, send, t.parts, bytes);
+                return wmax;
+            }
+        }
+        try e.comm.allGather(send, t.parts, bytes, .u8, e.s);
         return wmax;
     }
 
@@ -328,6 +353,14 @@ pub const Two = struct {
     /// [2, n, w0 + w1]: rank r's partial, pair 0's columns then pair 1's, for every r.
     pub fn quarters(t: *const Two, e: *const prompt.Engine, src: u64, dst: u64, n: usize, w: [2]usize, esize: usize) !void {
         if (t.rings) |rs| if (n < 64 and try ringed(rs.quarters(e.s, src, dst, n, w, esize))) return;
+        if (t.neighbor_gather) |ng| {
+            const width = try std.math.mul(usize, w[0], esize);
+            const bytes = try std.math.mul(usize, n, width);
+            if (w[0] == w[1] and width % 16 == 0 and neighbor.eligible(bytes)) {
+                try ng.quarters(e.s, src, dst, n, width);
+                return;
+            }
+        }
         const wmax = try t.allParts(e, src, n, w, esize);
         const row = (w[0] + w[1]) * esize;
         for (0..4) |g| {
@@ -354,6 +387,13 @@ pub const Two = struct {
     /// (Comm2D.gather4(x)[2p:2p + 2]).
     pub fn pairGather(t: *const Two, e: *const prompt.Engine, src: u64, dst: u64, n: usize, width: usize, esize: usize) !void {
         if (t.rings) |rs| if (try ringed(rs.pairGather(e.s, src, dst, n, width, esize))) return;
+        if (t.neighbor_gather) |ng| {
+            const bytes = try std.math.mul(usize, n, try std.math.mul(usize, width, esize));
+            if (neighbor.eligible(bytes)) {
+                try ng.pair(e.s, src, dst, bytes);
+                return;
+            }
+        }
         const wmax = try t.allParts(e, src, n, .{ width, width }, esize);
         try e.ops.copyRows(e.s, t.parts + 2 * t.p * n * wmax * esize, wmax * esize, dst, width * esize, width * esize, 2 * n);
     }
@@ -396,7 +436,11 @@ pub const Two = struct {
         const g: u32 = @intCast(t.r + 2 * t.p);
         try e.comm.exchange(src, mine, other, mine, .f32, g ^ 1, e.s);
         try e.ops.add2Bf16(e.s, src, other, half, mine);
-        try e.comm.exchange(half, mine, their, n * w[1 - t.p], .bf16, g ^ 2, e.s);
+        if (t.neighbor_gather != null) {
+            try neighbor.forward(e.comm, half, their, .{ n * w[0], n * w[0], n * w[1], n * w[1] }, .bf16, t.pad, t.part_bytes, e.s);
+        } else {
+            try e.comm.exchange(half, mine, their, n * w[1 - t.p], .bf16, g ^ 2, e.s);
+        }
         const row = (w[0] + w[1]) * 2;
         for (0..2) |pg| {
             const from = if (pg == t.p) half else their;
@@ -447,7 +491,7 @@ test "a follower splits the keyed indexer rows as rank 0 does, or says to set th
     lead.idx_split = 32768;
     try std.testing.expectEqualStrings("", lead.differ(lead, 2, &buf));
     try std.testing.expectEqualStrings("rank 2 splits the keyed indexer rows from 0 columns and rank 0 from 32768 (TF_DS_IDX_SPLIT, 0: unset): set the same on every rank", served.differ(lead, 2, &buf));
-    try std.testing.expectEqual(@as(usize, 40), @sizeOf(Settings)); // rank 0's frame: as before (idx_split took the pad)
+    try std.testing.expectEqual(@as(usize, 48), @sizeOf(Settings));
 }
 
 test "rank 0's settings go with NCCL's id: the follower answers, and an older rank 0's id alone is taken as before" {
@@ -455,10 +499,15 @@ test "rank 0's settings go with NCCL's id: the follower answers, and an older ra
     const served: Settings = .{ .world = 2, .streams = 8, .round_rows = 16, .rails = 0, .drafts = 1, .replay_floor = 1, .pool = 1 << 19 };
     var four = served;
     four.streams = 4;
+    var neighbor_on = served;
+    neighbor_on.neighbor_rdma = 1;
     const Case = struct { lead: ?Settings, follower: ?Settings, differs: bool };
     const cases = [_]Case{
         .{ .lead = served, .follower = served, .differs = false },
         .{ .lead = served, .follower = four, .differs = true },
+        .{ .lead = served, .follower = neighbor_on, .differs = true },
+        .{ .lead = neighbor_on, .follower = served, .differs = true },
+        .{ .lead = neighbor_on, .follower = neighbor_on, .differs = false },
         .{ .lead = null, .follower = four, .differs = false }, // an older rank 0: the id alone, nothing to check
     };
     const base: u16 = 39500 + @as(u16, @intCast(@mod(std.Io.Timestamp.now(io, .awake).nanoseconds, 400)));
@@ -499,6 +548,20 @@ test "rank 0's settings go with NCCL's id: the follower answers, and an older ra
         try std.testing.expectEqualSlices(u8, &id, &peer.id);
         try std.testing.expectEqualStrings(peer.said, try heard);
         try std.testing.expectEqual(cs.differs, peer.said.len > 0);
-        if (cs.differs) try std.testing.expect(std.mem.indexOf(u8, peer.said, "--streams 8") != null);
+        if (cs.differs) {
+            const setting = if (cs.follower.?.streams != cs.lead.?.streams) "--streams 8" else "TF_DS_NEIGHBOR_RDMA";
+            try std.testing.expect(std.mem.indexOf(u8, peer.said, setting) != null);
+        }
     }
+}
+
+test "startup settings reject mixed neighbor modes before communicator creation" {
+    const off: Settings = .{ .world = 4, .streams = 16, .round_rows = 48, .rails = 0, .drafts = 1, .replay_floor = 0, .pool = 1 << 21 };
+    var on = off;
+    on.neighbor_rdma = 1;
+    var buf: [1024]u8 = undefined;
+    try std.testing.expectEqualStrings("", off.differ(off, 1, &buf));
+    try std.testing.expectEqualStrings("", on.differ(on, 1, &buf));
+    try std.testing.expectEqualStrings("rank 1 has TF_DS_NEIGHBOR_RDMA=0 and rank 0 1: set the same on every rank", off.differ(on, 1, &buf));
+    try std.testing.expectEqualStrings("rank 1 has TF_DS_NEIGHBOR_RDMA=1 and rank 0 0: set the same on every rank", on.differ(off, 1, &buf));
 }

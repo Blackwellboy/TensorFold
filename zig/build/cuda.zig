@@ -347,6 +347,10 @@ pub fn hostTests(b: *std.Build, draft_ids: *std.Build.Module, build_options: *st
     const parse_tests = b.createModule(.{ .root_source_file = b.path("zig/src/server/tool_parse_test.zig"), .target = host, .optimize = .debug, .link_libc = true, .imports = &.{ .{ .name = "engine_api", .module = native_modules.api }, .{ .name = "tokenizer", .module = mods.tokenizer }, .{ .name = "template", .module = template } } });
     _ = @import("server.zig").addTo(b, parse_tests, host, .debug);
     step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = parse_tests })).step);
+    const neighbor = b.createModule(.{ .root_source_file = b.path("zig/src/families/dsv41/neighbor.zig"), .target = host, .optimize = .debug, .link_libc = true });
+    neighbor.addImport("cuda", cuda);
+    neighbor.addImport("fabric", native_modules.dsv41.import_table.get("fabric").?);
+    b.step("test-dsv41-neighbor", "Host checks of TP4 neighbor transport (no GPU or verbs)").dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = neighbor })).step);
     const cli = b.createModule(.{ .root_source_file = b.path("zig/src/cli/cuda_main.zig"), .target = host, .optimize = .debug, .link_libc = true });
     cli.addImport("cuda", cuda);
     cli.addImport("core", mods.core);
