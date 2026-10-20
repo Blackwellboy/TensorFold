@@ -72,3 +72,8 @@ changing-input graph replay, cutoff and unequal-width fallbacks, and mixed
 operation sequences. Then apply CONTRIBUTING.md's plain/drafted,
 concurrent/solo and resumed/fresh token gates and matched serving benchmarks.
 Prototype measurements on a different source revision do not qualify this branch.
+
+The [consolidated-branch hardware receipt](../receipts/dsv41-neighbor-hardware/README.md)
+records the tested code commit, ring setup, byte/graph/token checks and serving
+measurements. It does not claim a direct comparison with a switched fabric or the
+target branch.

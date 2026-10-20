@@ -1,0 +1,864 @@
+{
+  "set-a": {
+    "aad77d0c88401c4ae209805bc3043a877c99318a25f59e626cb47031e167bfe0": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Return a JSON array of 15 fictional employees. Each object has the fields id (int), name, department, title, salary (int), start_date (YYYY-MM-DD), manager_id (int or null) and skills (array of strings). Output only the JSON, pretty-printed with two-space indents. (variant 2)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "e3c84d75cf8e397ef7fb1325767f28956aa28dee34b78feb5f0f93caaf74b8aa": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a complete Python implementation of a thread-safe LRU cache with per-entry TTL expiry. Include type hints, docstrings, and a set of unittest test cases covering eviction and expiry. (variant 0)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "f9f80b2afdd2bde32b848b34a4e590ba3f672968bb2f192934c173268476b804": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a complete Python implementation of a thread-safe LRU cache with per-entry TTL expiry. Include type hints, docstrings, and a set of unittest test cases covering eviction and expiry. (variant 3)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "a89565c2f6f30f4f810ebf439719bfa90d2438914a43da8f71ced3c047dc380e": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a long, vivid essay about the history of lighthouses: how they were built, how their lamps and lenses evolved, and the lives of the keepers who tended them through storms. (variant 1)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    }
+  },
+  "set-b": {
+    "74d158f3297d120977d203b27efc15bcebeb9ce9d50d17403bd7235b96c73abf": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Count from 1 to 200. Write each number on its own line and nothing else. (request 2)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "028435d19643b27ced3885536e85042449a68642389143bb64b7d8ffc1dd3a54": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a Python class LRUCache with get(key) and put(key, value), both O(1), using a dict and a doubly linked list. Then write unittest test cases for it. (request 0)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "760e69453ee1cf28d8e9f40bb4a1cf6e1e9b79abf6074c01d279d5f55cf9b777": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a Python class LRUCache with get(key) and put(key, value), both O(1), using a dict and a doubly linked list. Then write unittest test cases for it. (request 3)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "de33478bcdca36eaadd4cc13f71c3ad350a765844b9c9813355ca8b4cc131cd7": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Count from 1 to 200. Write each number on its own line and nothing else. (request 5)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "bdbdd70cc48017b4527e14d4ab31a59d661dd5d8022d0000808fe5de532569ed": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a 400-word essay about the invention of the printing press and how it changed Europe. (request 1)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "beef6bcf1f303b6517c9cafd60acfbc884cc2d556b3472532189a724ddeb7878": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a Python class LRUCache with get(key) and put(key, value), both O(1), using a dict and a doubly linked list. Then write unittest test cases for it. (request 6)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "c053f7d0c8f3fdcef1c1eb5b52897e5fc2beef8ebac60634c080b28d517821a3": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a 400-word essay about the invention of the printing press and how it changed Europe. (request 4)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "ee688488e64bc3dcd37d3e70ffb8db08cfea1ba1bf941f949092ee9cccbdcbb6": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Count from 1 to 200. Write each number on its own line and nothing else. (request 8)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "2ed4b9756bf08f14734a74e6a410cc26e9ced4b0f0a65036d2537e41f957c3d5": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a Python class LRUCache with get(key) and put(key, value), both O(1), using a dict and a doubly linked list. Then write unittest test cases for it. (request 9)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "6057b4a21bf73ada4b79a4039a2ba74c7446aee7e80ce7cc145291c64334ffcf": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Count from 1 to 200. Write each number on its own line and nothing else. (request 11)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "39254edafb61cbe2abad3bf00bc6b722b15e8675567f3299d93c6cda76641cd7": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a 400-word essay about the invention of the printing press and how it changed Europe. (request 7)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "f2556a3d3f1bb1544c1d3a0726a95bea91e7d1257c3d5c0e561e1ee4c148930b": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a Python class LRUCache with get(key) and put(key, value), both O(1), using a dict and a doubly linked list. Then write unittest test cases for it. (request 12)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "c9832353d1b5d1a41c571abf029044223e632416e945f3e45c489eb6360f6d9a": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Count from 1 to 200. Write each number on its own line and nothing else. (request 14)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "61bb00afa3a5f4228ee8c3d6624341158bc031d9c1a801ed4481f5fe095241fc": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a 400-word essay about the invention of the printing press and how it changed Europe. (request 10)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "b150394af0a6a0d6239ada94af62ce4fe40a2c991e29cb122512f8cd0704f388": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a Python class LRUCache with get(key) and put(key, value), both O(1), using a dict and a doubly linked list. Then write unittest test cases for it. (request 15)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "0ea704a4299bf930d45b13a1d1379dd25b8714848b3a8872dcad9198d89cf8d7": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Count from 1 to 200. Write each number on its own line and nothing else. (request 17)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "394c16d01708d75ee622a98491a01e09224e817d61c63fb65b7a57e0ce387b2c": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a 400-word essay about the invention of the printing press and how it changed Europe. (request 13)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "8612277e4d4bd632fd50301f8ca8c3fdd415beec3905572768e3fbf8f10ab98b": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Count from 1 to 200. Write each number on its own line and nothing else. (request 20)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "d195904172f21d23aa3966070551f352886f1d0d3942c8d8e6425aad6af8d08e": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a Python class LRUCache with get(key) and put(key, value), both O(1), using a dict and a doubly linked list. Then write unittest test cases for it. (request 18)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "02e086eef437d961a2ae0ab4956aacfd7bbee9483b79bae8ff175da8a7e1759a": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a 400-word essay about the invention of the printing press and how it changed Europe. (request 16)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "f9ec88032a4e09da597cceccbce33f9fbf947a44771c310cbcc677f9aa649dd2": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Count from 1 to 200. Write each number on its own line and nothing else. (request 23)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "e543c9d9632fa172bdb5bb283932e4232cd31ca1709cb1b47d2fd9e5a20537cd": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a Python class LRUCache with get(key) and put(key, value), both O(1), using a dict and a doubly linked list. Then write unittest test cases for it. (request 21)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "fb10b35f572b9ad21af79cf3ea188dc3143501e29ff3dd707fa9fa2df4d1a52c": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a 400-word essay about the invention of the printing press and how it changed Europe. (request 19)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "7563bc1009722bdd43ccf5846ac50df5e2d1e2e752816fddec00561fc8143dc7": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Count from 1 to 200. Write each number on its own line and nothing else. (request 26)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "ff679871d37c1c6eaf2ac3496ceb92ff26fc7e98137f596be2ce454aeb143cb1": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a Python class LRUCache with get(key) and put(key, value), both O(1), using a dict and a doubly linked list. Then write unittest test cases for it. (request 24)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "4d3d92f905b87db04348e187953e0924968f2d7f64a187536ecc39bd942f385b": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a 400-word essay about the invention of the printing press and how it changed Europe. (request 22)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "b665dea5d6dcaf15c3543bf734d0dfcc8ad438a5f1c02525d236e910f6c488f6": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Count from 1 to 200. Write each number on its own line and nothing else. (request 29)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "7c755be3ee3ae6e8afa8f93afcbaf8b14f82fa16a464b8785038a389595c0572": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a Python class LRUCache with get(key) and put(key, value), both O(1), using a dict and a doubly linked list. Then write unittest test cases for it. (request 27)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "c19257b66f04616c8319d1aa30020aff31269db84233a43e391adde9c2bc2564": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a 400-word essay about the invention of the printing press and how it changed Europe. (request 25)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "4aa21ea63407d194592a2b9be7b51afbd5b6adb64d6312b51e4388e9a617f6d7": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Count from 1 to 200. Write each number on its own line and nothing else. (request 32)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "2720e7d96aa99e5ecab04864014db6d60f6029cef294cb4bc406cb81ff8b1728": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a Python class LRUCache with get(key) and put(key, value), both O(1), using a dict and a doubly linked list. Then write unittest test cases for it. (request 30)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "05d8fbfbef8bcbc73ae595328ccd41e461976b0a9fee1176c3210a9e8c784833": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a 400-word essay about the invention of the printing press and how it changed Europe. (request 28)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "d59ac2bce4aa6b88a5f62340a496a6534a372bff18ed537ea08f2e4bfd44ad85": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Count from 1 to 200. Write each number on its own line and nothing else. (request 35)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "17eba2f5aafe710a6311640e36ea7a43d942d10c7ae13cad12be5a18c9b6422e": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a Python class LRUCache with get(key) and put(key, value), both O(1), using a dict and a doubly linked list. Then write unittest test cases for it. (request 33)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "cfa99e206932c70fac7b4a256675c76fa6d94c260fe1ad610309c13459d9bef8": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a 400-word essay about the invention of the printing press and how it changed Europe. (request 31)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "9ff73c975a93918f9ec4438bc33de12ec94d6d20c347f5d4a25d68ae50856939": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Count from 1 to 200. Write each number on its own line and nothing else. (request 38)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "22aca259e5dda9bc8b2cb3ce641dbab0b4dbf5db17ce08eaf9297b570b9f8227": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a Python class LRUCache with get(key) and put(key, value), both O(1), using a dict and a doubly linked list. Then write unittest test cases for it. (request 36)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "02491c407f3733b9add505531e47f6ff92583ee2c722b78c0c539e50e10b4e28": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a 400-word essay about the invention of the printing press and how it changed Europe. (request 34)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "a4c1592b3209d76b6d42111eb5082bb83b4ef57211cdcd312c165a91c34ddfb0": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Count from 1 to 200. Write each number on its own line and nothing else. (request 41)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "d88699ff4479e041ebe22e19249dc2bb630298865d02b558353ad9cb0e5088f3": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a Python class LRUCache with get(key) and put(key, value), both O(1), using a dict and a doubly linked list. Then write unittest test cases for it. (request 39)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "2b96801251e63f96e4186b6e22bce9f066a31d4497e8bd2f24798ee20cbd2ea8": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a 400-word essay about the invention of the printing press and how it changed Europe. (request 37)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "998041c2cab307dde851507b6c910c7adc432d5a79bec70bab2810fc0f39d083": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Count from 1 to 200. Write each number on its own line and nothing else. (request 44)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "921f25ef9cf42bd31f1c97f2e246bb48ff0795243509de0dfe22256a928ed43d": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a 400-word essay about the invention of the printing press and how it changed Europe. (request 40)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "dff54ab3305dfaab814633b805b4fcbba025d6ebdd3c1df4330b9606df87597a": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a Python class LRUCache with get(key) and put(key, value), both O(1), using a dict and a doubly linked list. Then write unittest test cases for it. (request 42)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "fe3672f37f07c25956e462afb0585df9dfc8a399c6be9189f87068ca74edaa4a": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Count from 1 to 200. Write each number on its own line and nothing else. (request 47)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "d9f1d22a50579a4f09566c42ed4d56a06be105c8da5db10e39f2911645010a57": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a Python class LRUCache with get(key) and put(key, value), both O(1), using a dict and a doubly linked list. Then write unittest test cases for it. (request 45)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "a39df1ee979126d0736c8b58e60ba184fdbb96af815064dc4162448f533a96be": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a 400-word essay about the invention of the printing press and how it changed Europe. (request 43)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "f5c3d8680c034af74350f02e5d58481b0e1f9d007ba31ac45aaa2c7f34518784": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Count from 1 to 200. Write each number on its own line and nothing else. (request 50)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "88eb3af4bdee8a7e8f2654d8734b74c4b2fc4d0734bb98d5510419068327b555": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a Python class LRUCache with get(key) and put(key, value), both O(1), using a dict and a doubly linked list. Then write unittest test cases for it. (request 48)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "19b7ded5fb54746b8f735c470234c41d1a038541eb026980437329b282023fbd": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a 400-word essay about the invention of the printing press and how it changed Europe. (request 46)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "3f44ebfc6a88fadecb809a0c3a086aa544bec6a6b3e2a16ea6ecddcfb457b876": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Count from 1 to 200. Write each number on its own line and nothing else. (request 53)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "857b334534247f0fdd065c2e2edc1777bee96f2d7ce227c4b41b847f2394738f": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a Python class LRUCache with get(key) and put(key, value), both O(1), using a dict and a doubly linked list. Then write unittest test cases for it. (request 51)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "948e2c5dfca9aa15cf228bcd8f2a873a525b6147c4430e08abeedc2103ab74e2": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a 400-word essay about the invention of the printing press and how it changed Europe. (request 49)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "1c42d25a06e66fc5dec813da632968208dd00723d0c846f541fe93f19a4de438": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Count from 1 to 200. Write each number on its own line and nothing else. (request 56)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "e668ae955d6fce15ae772967d7fcea44f913f085a5d96150f6b97f50274c6f4e": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a Python class LRUCache with get(key) and put(key, value), both O(1), using a dict and a doubly linked list. Then write unittest test cases for it. (request 54)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "5b22e772a086a5dc357161a39a36daf36fe76407aaae2f84d055a288dce858b3": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a 400-word essay about the invention of the printing press and how it changed Europe. (request 52)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "552e7f415a949eb1ac0476619da6ffd47183f79152b9af214232c5b97844c00e": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Count from 1 to 200. Write each number on its own line and nothing else. (request 59)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "42bdbddd34e965406ad3200e7fc87c0e1fb7fc435e94f986f16818c5700c5cc3": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a Python class LRUCache with get(key) and put(key, value), both O(1), using a dict and a doubly linked list. Then write unittest test cases for it. (request 57)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "a978f17183b2e8cb1d2d805bd104f73e73067f1c62c1aeafc3ed3da691da32c6": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a 400-word essay about the invention of the printing press and how it changed Europe. (request 55)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "a00465c2148cb0965aae033f90cb95c8a653d937ab6be5b99ee1d1e4a6cc81f7": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a Python class LRUCache with get(key) and put(key, value), both O(1), using a dict and a doubly linked list. Then write unittest test cases for it. (request 60)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "ab1ad3a00104824ad67f1bb44c2222225d6cc18aff6797e62853ecd9793469e4": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a 400-word essay about the invention of the printing press and how it changed Europe. (request 58)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    },
+    "6179488294e705da6ad4955798cbd6281ec774b4c13137a515f01ca63661c142": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a 400-word essay about the invention of the printing press and how it changed Europe. (request 61)"
+        }
+      ],
+      "max_tokens": 256,
+      "temperature": 0,
+      "chat_template_kwargs": {
+        "enable_thinking": false
+      }
+    }
+  }
+}

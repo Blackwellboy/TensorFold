@@ -6,7 +6,8 @@ Local checks on 2026-10-20 UTC, macOS arm64, Zig 0.17.0. This change is based on
 
 The transport is opt-in through `TF_DS_NEIGHBOR_RDMA=1`; see the
 [configuration and dispatch contract](../../recipes/deepseek-v41-neighbor.md).
-No hardware or model qualification was performed for this branch.
+These were the initial host-only checks. Subsequent exact-commit device and model
+results are recorded in the [hardware receipt](../dsv41-neighbor-hardware/README.md).
 
 | Check | Result |
 | --- | --- |
@@ -29,10 +30,9 @@ The focused tests exercise host-side preconditions, startup-mode comparison,
 actual NCCL forwarding call sequencing with a recording API, and abort-word
 propagation. They do not validate device output, RDMA queue pairs, rail selection,
 CUDA graph execution, startup collectives on four machines, throughput, or model
-tokens. GPU/model gates in CONTRIBUTING.md remain pending, including byte/layout
-and graph checks, plain/drafted and concurrent/solo equality, prompt reuse,
-long-context behavior and matched performance. No fault, restart, or reboot gate
-was run.
+tokens. At this initial host-only stage, device/model gates remained pending. The linked
+hardware receipt records the subsequently tested subset and remaining limits.
+No fault, restart, or reboot gate was run.
 
 The earlier experimental implementation used source
 `b65c8b92d2403dfdefccf15a3b23ba609a4553e2`, a descendant of this pinned base, plus

@@ -1,0 +1,590 @@
+[
+  {
+    "rank": 0,
+    "pass_gate": true,
+    "mixed_graph": true,
+    "records": [
+      {
+        "kind": 0,
+        "rows": 1,
+        "width": 409600,
+        "exact": true,
+        "candidate_us": [
+          30.493998527526855,
+          30.445200204849243
+        ]
+      },
+      {
+        "kind": 0,
+        "rows": 1,
+        "width": 524304,
+        "exact": true,
+        "candidate_us": [
+          185.60559749603271,
+          202.56800651550293
+        ]
+      },
+      {
+        "kind": 1,
+        "rows": 4,
+        "width": 16,
+        "exact": true,
+        "candidate_us": [
+          14.526399970054626,
+          14.788000285625458
+        ]
+      },
+      {
+        "kind": 2,
+        "rows": 1,
+        "width": 10240,
+        "exact": true,
+        "candidate_us": [
+          18.897199630737305,
+          18.829600512981415
+        ]
+      },
+      {
+        "kind": 2,
+        "rows": 48,
+        "width": 10240,
+        "exact": true,
+        "candidate_us": [
+          128.52879762649536,
+          122.29399681091309
+        ]
+      },
+      {
+        "kind": 2,
+        "rows": 1,
+        "width": 524304,
+        "exact": true,
+        "candidate_us": [
+          226.56400203704834,
+          198.59280586242676
+        ]
+      },
+      {
+        "kind": 3,
+        "rows": 7,
+        "width": 1280,
+        "exact": true,
+        "candidate_us": [
+          17.79559999704361,
+          17.834000289440155
+        ]
+      },
+      {
+        "kind": 3,
+        "rows": 42,
+        "width": 1280,
+        "exact": true,
+        "candidate_us": [
+          27.924799919128418,
+          27.32599973678589
+        ]
+      },
+      {
+        "kind": 3,
+        "rows": 112,
+        "width": 1280,
+        "exact": true,
+        "candidate_us": [
+          46.43999934196472,
+          39.35000002384186
+        ]
+      },
+      {
+        "kind": 3,
+        "rows": 336,
+        "width": 1280,
+        "exact": true,
+        "candidate_us": [
+          92.94919967651367,
+          80.39720058441162
+        ]
+      },
+      {
+        "kind": 3,
+        "rows": 1,
+        "width": 16,
+        "exact": true,
+        "candidate_us": [
+          14.654800295829773,
+          14.564000070095062
+        ]
+      },
+      {
+        "kind": 3,
+        "rows": 1,
+        "width": 524288,
+        "exact": true,
+        "candidate_us": [
+          94.62159872055054,
+          94.88400220870972
+        ]
+      },
+      {
+        "kind": 3,
+        "rows": 1,
+        "width": 524304,
+        "exact": true,
+        "candidate_us": [
+          185.54680347442627,
+          216.4423942565918
+        ]
+      },
+      {
+        "kind": 3,
+        "rows": 1,
+        "width": 18,
+        "exact": true,
+        "candidate_us": [
+          109.96840000152588,
+          109.81719493865967
+        ]
+      }
+    ]
+  },
+  {
+    "rank": 1,
+    "pass_gate": true,
+    "mixed_graph": true,
+    "records": [
+      {
+        "kind": 0,
+        "rows": 1,
+        "width": 409600,
+        "exact": true,
+        "candidate_us": [
+          30.48959970474243,
+          30.421200394630432
+        ]
+      },
+      {
+        "kind": 0,
+        "rows": 1,
+        "width": 524304,
+        "exact": true,
+        "candidate_us": [
+          185.48959493637085,
+          202.37560272216797
+        ]
+      },
+      {
+        "kind": 1,
+        "rows": 4,
+        "width": 16,
+        "exact": true,
+        "candidate_us": [
+          14.542800188064575,
+          14.771999418735504
+        ]
+      },
+      {
+        "kind": 2,
+        "rows": 1,
+        "width": 10240,
+        "exact": true,
+        "candidate_us": [
+          18.901599943637848,
+          18.756400048732758
+        ]
+      },
+      {
+        "kind": 2,
+        "rows": 48,
+        "width": 10240,
+        "exact": true,
+        "candidate_us": [
+          128.51239442825317,
+          121.68760299682617
+        ]
+      },
+      {
+        "kind": 2,
+        "rows": 1,
+        "width": 524304,
+        "exact": true,
+        "candidate_us": [
+          226.52881145477295,
+          198.57800006866455
+        ]
+      },
+      {
+        "kind": 3,
+        "rows": 7,
+        "width": 1280,
+        "exact": true,
+        "candidate_us": [
+          17.684000730514526,
+          17.757999897003174
+        ]
+      },
+      {
+        "kind": 3,
+        "rows": 42,
+        "width": 1280,
+        "exact": true,
+        "candidate_us": [
+          28.045600652694702,
+          27.455198764801025
+        ]
+      },
+      {
+        "kind": 3,
+        "rows": 112,
+        "width": 1280,
+        "exact": true,
+        "candidate_us": [
+          46.21039927005768,
+          39.081600308418274
+        ]
+      },
+      {
+        "kind": 3,
+        "rows": 336,
+        "width": 1280,
+        "exact": true,
+        "candidate_us": [
+          94.0060019493103,
+          80.18959760665894
+        ]
+      },
+      {
+        "kind": 3,
+        "rows": 1,
+        "width": 16,
+        "exact": true,
+        "candidate_us": [
+          14.591200649738312,
+          14.52919989824295
+        ]
+      },
+      {
+        "kind": 3,
+        "rows": 1,
+        "width": 524288,
+        "exact": true,
+        "candidate_us": [
+          94.61640119552612,
+          95.49999833106995
+        ]
+      },
+      {
+        "kind": 3,
+        "rows": 1,
+        "width": 524304,
+        "exact": true,
+        "candidate_us": [
+          185.21360158920288,
+          217.42920875549316
+        ]
+      },
+      {
+        "kind": 3,
+        "rows": 1,
+        "width": 18,
+        "exact": true,
+        "candidate_us": [
+          110.02440452575684,
+          109.80960130691528
+        ]
+      }
+    ]
+  },
+  {
+    "rank": 2,
+    "pass_gate": true,
+    "mixed_graph": true,
+    "records": [
+      {
+        "kind": 0,
+        "rows": 1,
+        "width": 409600,
+        "exact": true,
+        "candidate_us": [
+          30.64880073070526,
+          30.66360056400299
+        ]
+      },
+      {
+        "kind": 0,
+        "rows": 1,
+        "width": 524304,
+        "exact": true,
+        "candidate_us": [
+          185.56400537490845,
+          202.4616003036499
+        ]
+      },
+      {
+        "kind": 1,
+        "rows": 4,
+        "width": 16,
+        "exact": true,
+        "candidate_us": [
+          14.658400416374207,
+          14.724799990653992
+        ]
+      },
+      {
+        "kind": 2,
+        "rows": 1,
+        "width": 10240,
+        "exact": true,
+        "candidate_us": [
+          18.907199800014496,
+          18.756400048732758
+        ]
+      },
+      {
+        "kind": 2,
+        "rows": 48,
+        "width": 10240,
+        "exact": true,
+        "candidate_us": [
+          128.5156011581421,
+          121.51639461517334
+        ]
+      },
+      {
+        "kind": 2,
+        "rows": 1,
+        "width": 524304,
+        "exact": true,
+        "candidate_us": [
+          226.47359371185303,
+          198.57200384140015
+        ]
+      },
+      {
+        "kind": 3,
+        "rows": 7,
+        "width": 1280,
+        "exact": true,
+        "candidate_us": [
+          17.76439994573593,
+          17.847999930381775
+        ]
+      },
+      {
+        "kind": 3,
+        "rows": 42,
+        "width": 1280,
+        "exact": true,
+        "candidate_us": [
+          28.082001209259033,
+          27.461999654769897
+        ]
+      },
+      {
+        "kind": 3,
+        "rows": 112,
+        "width": 1280,
+        "exact": true,
+        "candidate_us": [
+          46.42600119113922,
+          39.333200454711914
+        ]
+      },
+      {
+        "kind": 3,
+        "rows": 336,
+        "width": 1280,
+        "exact": true,
+        "candidate_us": [
+          94.12440061569214,
+          79.66960072517395
+        ]
+      },
+      {
+        "kind": 3,
+        "rows": 1,
+        "width": 16,
+        "exact": true,
+        "candidate_us": [
+          14.567600190639496,
+          14.519999921321869
+        ]
+      },
+      {
+        "kind": 3,
+        "rows": 1,
+        "width": 524288,
+        "exact": true,
+        "candidate_us": [
+          95.23000121116638,
+          95.53840160369873
+        ]
+      },
+      {
+        "kind": 3,
+        "rows": 1,
+        "width": 524304,
+        "exact": true,
+        "candidate_us": [
+          185.3708028793335,
+          217.13440418243408
+        ]
+      },
+      {
+        "kind": 3,
+        "rows": 1,
+        "width": 18,
+        "exact": true,
+        "candidate_us": [
+          110.25960445404053,
+          109.65759754180908
+        ]
+      }
+    ]
+  },
+  {
+    "rank": 3,
+    "pass_gate": true,
+    "mixed_graph": true,
+    "records": [
+      {
+        "kind": 0,
+        "rows": 1,
+        "width": 409600,
+        "exact": true,
+        "candidate_us": [
+          30.607199668884277,
+          30.65280020236969
+        ]
+      },
+      {
+        "kind": 0,
+        "rows": 1,
+        "width": 524304,
+        "exact": true,
+        "candidate_us": [
+          185.57120561599731,
+          202.49919891357422
+        ]
+      },
+      {
+        "kind": 1,
+        "rows": 4,
+        "width": 16,
+        "exact": true,
+        "candidate_us": [
+          14.633199572563171,
+          14.882799983024597
+        ]
+      },
+      {
+        "kind": 2,
+        "rows": 1,
+        "width": 10240,
+        "exact": true,
+        "candidate_us": [
+          18.878400325775146,
+          18.8060000538826
+        ]
+      },
+      {
+        "kind": 2,
+        "rows": 48,
+        "width": 10240,
+        "exact": true,
+        "candidate_us": [
+          128.46280336380005,
+          122.10240364074707
+        ]
+      },
+      {
+        "kind": 2,
+        "rows": 1,
+        "width": 524304,
+        "exact": true,
+        "candidate_us": [
+          226.35560035705566,
+          198.80399703979492
+        ]
+      },
+      {
+        "kind": 3,
+        "rows": 7,
+        "width": 1280,
+        "exact": true,
+        "candidate_us": [
+          17.788800597190857,
+          17.838799953460693
+        ]
+      },
+      {
+        "kind": 3,
+        "rows": 42,
+        "width": 1280,
+        "exact": true,
+        "candidate_us": [
+          28.051599860191345,
+          27.460798621177673
+        ]
+      },
+      {
+        "kind": 3,
+        "rows": 112,
+        "width": 1280,
+        "exact": true,
+        "candidate_us": [
+          46.43479883670807,
+          39.18159902095795
+        ]
+      },
+      {
+        "kind": 3,
+        "rows": 336,
+        "width": 1280,
+        "exact": true,
+        "candidate_us": [
+          93.40720176696777,
+          79.79999780654907
+        ]
+      },
+      {
+        "kind": 3,
+        "rows": 1,
+        "width": 16,
+        "exact": true,
+        "candidate_us": [
+          14.601600170135498,
+          14.541999995708466
+        ]
+      },
+      {
+        "kind": 3,
+        "rows": 1,
+        "width": 524288,
+        "exact": true,
+        "candidate_us": [
+          95.30079960823059,
+          95.05879878997803
+        ]
+      },
+      {
+        "kind": 3,
+        "rows": 1,
+        "width": 524304,
+        "exact": true,
+        "candidate_us": [
+          185.6376051902771,
+          216.42999649047852
+        ]
+      },
+      {
+        "kind": 3,
+        "rows": 1,
+        "width": 18,
+        "exact": true,
+        "candidate_us": [
+          110.12599468231201,
+          109.82120037078857
+        ]
+      }
+    ]
+  }
+]

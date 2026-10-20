@@ -1,0 +1,132 @@
+{
+  "tested_commit": "a9225d72ec63b19867c72eba1cca48a49648805c",
+  "target_commit": "59402086381a42c74d53053443224eec2790b4c5",
+  "direct_target_comparison": false,
+  "reason": "No network switch is available; these are measurements of the fastest implementation selected in our ring experiments, not a direct target-branch or switched-fabric comparison.",
+  "hardware": {
+    "gpu": "NVIDIA GB10",
+    "architecture": "aarch64",
+    "ranks": [
+      {
+        "rank": 0,
+        "kernel": "6.17.0-1029-nvidia",
+        "ubuntu": "24.04.4",
+        "driver": "580.173.02",
+        "management_mbps": 10000
+      },
+      {
+        "rank": 1,
+        "kernel": "6.17.0-1032-nvidia",
+        "ubuntu": "24.04.3",
+        "driver": "580.173.02",
+        "management_mbps": 10000
+      },
+      {
+        "rank": 2,
+        "kernel": "6.17.0-1022-nvidia",
+        "ubuntu": "24.04.4",
+        "driver": "580.159.03",
+        "management_mbps": 2500
+      },
+      {
+        "rank": 3,
+        "kernel": "6.17.0-1022-nvidia",
+        "ubuntu": "24.04.4",
+        "driver": "580.159.03",
+        "management_mbps": 2500
+      }
+    ],
+    "nccl": "2.30.7, patched",
+    "nccl_sha256": "1cdf5f3e2d617d5c07a87903eb8849d5bd7758f6c900455d613a2e0eb289d63e"
+  },
+  "binaries": {
+    "tensorfold-native": "ff0a33c176e621115a4f98d662f56deed7ba54c1e005ac5b8742cf17a6279cae",
+    "libtf-neighbor.so": "38867278afe5e9560d64e81b1f1ce6bf1a953713a5243057bb0e4ff14ff8e00a",
+    "probe.py": "8d1900817f5e8b240c4be327fef72ca2f5bd187701c109f64007cc34b9d4dba2",
+    "tf-dsv41-lanes": "fb85c5476b7ef946bf91de6fd3ef9380ab0f04d2e809abeaf050c7915dfccc69"
+  },
+  "transport": {
+    "rank_shape_cases": 56,
+    "pass_bytes_and_graphs": true,
+    "latencies": [
+      {
+        "bytes": 8960,
+        "slowest_rank_mean_us": 17.814800143241882
+      },
+      {
+        "bytes": 53760,
+        "slowest_rank_mean_us": 27.772000432014465
+      },
+      {
+        "bytes": 143360,
+        "slowest_rank_mean_us": 42.89499968290329
+      },
+      {
+        "bytes": 430080,
+        "slowest_rank_mean_us": 87.09779977798462
+      }
+    ]
+  },
+  "exact_tokens": {
+    "prompts": 3,
+    "paths": 3,
+    "tokens_per_reply": 64,
+    "replies": 9,
+    "pass_test": true
+  },
+  "long_context": {
+    "burst_equal_to_solo": 5,
+    "of": 5,
+    "drafted_equals_serial": true,
+    "needles_found_burst": 4,
+    "needles_found_solo": 4,
+    "prompts": 4,
+    "burst_s": 17.4,
+    "solo_s": 7.7,
+    "serial_s": 1.8,
+    "cached_tokens_solo": [
+      6144,
+      6144,
+      6144,
+      6144,
+      6144
+    ]
+  },
+  "cancellation_pass": true,
+  "burst": {
+    "streams": 4,
+    "tokens": 256,
+    "warmups": 1,
+    "repetitions": 6,
+    "mean_aggregate_tps": 132.6345814307147,
+    "min_aggregate_tps": 131.9383995892958,
+    "max_aggregate_tps": 133.30848622707344,
+    "exact_utf8_replies": 24
+  },
+  "steady": {
+    "streams": 4,
+    "seconds": 30,
+    "max_tokens": 256,
+    "set": "a",
+    "requests": 19,
+    "aggregate_tps": 148.83,
+    "per_stream_tps_p50": 47.475,
+    "per_stream_tps_p95": 62.115,
+    "per_stream_tps_p05": 22.925,
+    "ttft_s_p50": 0.189,
+    "ttft_s_p95": 0.49
+  },
+  "sustained": {
+    "streams": 4,
+    "seconds": 90,
+    "max_tokens": 256,
+    "set": "b",
+    "requests": 62,
+    "aggregate_tps": 169.77,
+    "per_stream_tps_p50": 51.476,
+    "per_stream_tps_p95": 82.968,
+    "per_stream_tps_p05": 25.957,
+    "ttft_s_p50": 0.159,
+    "ttft_s_p95": 0.283
+  }
+}
