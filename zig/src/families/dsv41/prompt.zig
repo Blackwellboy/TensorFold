@@ -170,8 +170,8 @@ pub const Chunk = struct {
     n: usize = 0,
     start: usize = 0,
     ids: u64, // int64 [cap]
-    pos: u64, // int64 [n]: start .. start + n (after a replay cut a view into pos0, pos[first:])
-    pos0: u64, // int64 [cap]: the chunk's positions as begin() wrote them
+    pos: u64, // int64 [n]: start .. start + n (replay cut: a view, or aligned pos0 for small odd cuts)
+    pos0: u64, // int64 [cap]: begin() positions, or exact surviving positions after a small odd cut
     h: u64, // bf16 [cap, hc, D]: the streams
     h_alt: u64, // their second buffer (hc_pre_pf writes the posted streams there)
     x: u64, // bf16 [cap, D]: a block's input rows
@@ -1360,9 +1360,15 @@ pub fn replayCut(e: *const Engine, ch: *Chunk, cs: *const Caches, sh: *Shared, l
     std.mem.swap(u64, &ch.pre, &ch.pre_f);
     ch.start += first;
     ch.n = n;
-    // pos[first:]: a view, first * 8 bytes in (its alignment is the one the served kernels were specialized for)
-    _ = host_pos;
-    ch.pos += first * 8;
+    // Decode-sized split attention captures require aligned POS (also its default RBASE/CBASE).
+    const pos = ch.pos + first * 8;
+    if (pos % 16 != 0 and n <= tri.decode_rows) {
+        // Upload begin()'s exact surviving positions after their previous readers on e.s.
+        try upload(e, ch.pos0, host_pos[first..][0..n].ptr, n * 8);
+        ch.pos = ch.pos0;
+    } else {
+        ch.pos = pos;
+    }
     return true;
 }
 
