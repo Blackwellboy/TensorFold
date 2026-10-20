@@ -39,3 +39,28 @@ The earlier experimental implementation used source
 separate patches. Its device and serving results support the transport design;
 they are not measurements of this consolidated branch or its startup agreement.
 No unrelated model, server, forced-tool, kernel or deployment changes were ported.
+
+## v0.2.0 repeat and local CI checks
+
+Rebased onto `b65c8b92d2403dfdefccf15a3b23ba609a4553e2`; node-tested code
+`22ac1f72e9e74d3f38f7aa2136bcccb432828cf0`. Zig 0.17.0 focused tests passed
+15/15, including configurable GID parsing; all 124 DeepSeek-family tests passed,
+including both startup neighbor-mode mismatch directions. Lean findings were
+1,615 on base and head, zero new. Linux node validation completed 100/100 steps,
+1,007 newly run tests passed, two skipped; other groups were cached. Native build
+with the existing SM121 fatbins passed (SHA-256
+`4f69f434dfd56c968ddbc70e89ba05fe79de054dee74dd32fcae2a03cf6c76d0`).
+
+Local CI commands at `45af9710f6b78afbcdb198ade9db62c868ad54fe` (same production
+code; later edits are documentation only) used Zig 0.17.0, Node 22.23.2 and
+npm 10.9.8. Ubuntu 24.04 arm64: `zig build test` passed 88/88 steps, 1,683 tests,
+seven skips; kernel-contract 18/18 and fuzz 7/7 passed. Goldens: 309/319 equal,
+ten known differences, zero unexpected. Whitespace and lean differential passed.
+macOS 27.2 arm64: desktop typecheck and mobile verification passed; desktop tests
+passed 547/548, with unchanged `sandbox-git-control.test.ts` failing because the
+sandbox blocks Xcode's `libxcrun.dylib`. macOS Zig retained the `SO.BUSY_POLL`
+compile failure (1,958 passed, eight skipped). Full-tree formatting fails on five
+unchanged base files: `zig/src/server/effort_values_test.zig` and
+`zig/src/families/dsv41/{exl3_linear,round,tri_basic,split_bench_main}.zig`.
+GitHub jobs did not start due to billing/spending limits; these local platforms
+differ from its runner matrix. These are not claims that all CI checks pass.

@@ -84,8 +84,6 @@ records the tested code commit, ring setup, byte/graph/token checks and serving
 measurements. It does not claim a direct comparison with a switched fabric or the
 target branch.
 
-The [v0.2.0 update receipt](../receipts/dsv41-neighbor-v020/README.md) records
-the rebased code checks separately from the historical hardware measurements.
-
-The [v0.2.0 hardware repeat](../receipts/dsv41-neighbor-v020-hardware/README.md)
-records fresh byte/graph/token checks and the same serving workloads on the rebased code.
+The [host and build receipt](../receipts/dsv41-neighbor-host/README.md) records
+the rebased code checks and local CI results. The hardware receipt above includes
+the fresh repeat and historical comparison of the same serving workloads.
