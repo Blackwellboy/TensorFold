@@ -144,6 +144,8 @@ pub const Settings = extern struct {
     drafts: u32, // the drafter (--drafts): the same
     replay_floor: u32, // TF_DS_REPLAY_FLOOR: the same
     idx_split: u32 = 0, // TF_DS_IDX_SPLIT (prompt.split_from): the same (the keyed indexer layers all-gather inside)
+    neighbor_rdma: u32 = 0, // TF_DS_NEIGHBOR_RDMA: the same exchange path on every rank
+    reserved: u32 = 0,
     pool: u64, // rank 0's --context (a follower's --pool): a follower's holds rank 0's
 
     pub const tag: u32 = 0x31345344; // "DS41"
@@ -168,6 +170,8 @@ pub const Settings = extern struct {
             w.print("{s}rank {d} has TF_DS_REPLAY_FLOOR={d} and rank 0 {d}: set the same on every rank", .{ sepIf(&w, sep), rank, mine.replay_floor, lead.replay_floor }) catch {};
         if (mine.idx_split != lead.idx_split)
             w.print("{s}rank {d} splits the keyed indexer rows from {d} columns and rank 0 from {d} (TF_DS_IDX_SPLIT, 0: unset): set the same on every rank", .{ sepIf(&w, sep), rank, mine.idx_split, lead.idx_split }) catch {};
+        if (mine.neighbor_rdma != lead.neighbor_rdma)
+            w.print("{s}rank {d} has TF_DS_NEIGHBOR_RDMA={d} and rank 0 {d}: set the same on every rank", .{ sepIf(&w, sep), rank, mine.neighbor_rdma, lead.neighbor_rdma }) catch {};
         return w.buffered();
     }
 
@@ -487,7 +491,7 @@ test "a follower splits the keyed indexer rows as rank 0 does, or says to set th
     lead.idx_split = 32768;
     try std.testing.expectEqualStrings("", lead.differ(lead, 2, &buf));
     try std.testing.expectEqualStrings("rank 2 splits the keyed indexer rows from 0 columns and rank 0 from 32768 (TF_DS_IDX_SPLIT, 0: unset): set the same on every rank", served.differ(lead, 2, &buf));
-    try std.testing.expectEqual(@as(usize, 40), @sizeOf(Settings)); // rank 0's frame: as before (idx_split took the pad)
+    try std.testing.expectEqual(@as(usize, 48), @sizeOf(Settings));
 }
 
 test "rank 0's settings go with NCCL's id: the follower answers, and an older rank 0's id alone is taken as before" {
@@ -495,10 +499,15 @@ test "rank 0's settings go with NCCL's id: the follower answers, and an older ra
     const served: Settings = .{ .world = 2, .streams = 8, .round_rows = 16, .rails = 0, .drafts = 1, .replay_floor = 1, .pool = 1 << 19 };
     var four = served;
     four.streams = 4;
+    var neighbor_on = served;
+    neighbor_on.neighbor_rdma = 1;
     const Case = struct { lead: ?Settings, follower: ?Settings, differs: bool };
     const cases = [_]Case{
         .{ .lead = served, .follower = served, .differs = false },
         .{ .lead = served, .follower = four, .differs = true },
+        .{ .lead = served, .follower = neighbor_on, .differs = true },
+        .{ .lead = neighbor_on, .follower = served, .differs = true },
+        .{ .lead = neighbor_on, .follower = neighbor_on, .differs = false },
         .{ .lead = null, .follower = four, .differs = false }, // an older rank 0: the id alone, nothing to check
     };
     const base: u16 = 39500 + @as(u16, @intCast(@mod(std.Io.Timestamp.now(io, .awake).nanoseconds, 400)));
@@ -539,6 +548,20 @@ test "rank 0's settings go with NCCL's id: the follower answers, and an older ra
         try std.testing.expectEqualSlices(u8, &id, &peer.id);
         try std.testing.expectEqualStrings(peer.said, try heard);
         try std.testing.expectEqual(cs.differs, peer.said.len > 0);
-        if (cs.differs) try std.testing.expect(std.mem.indexOf(u8, peer.said, "--streams 8") != null);
+        if (cs.differs) {
+            const setting = if (cs.follower.?.streams != cs.lead.?.streams) "--streams 8" else "TF_DS_NEIGHBOR_RDMA";
+            try std.testing.expect(std.mem.indexOf(u8, peer.said, setting) != null);
+        }
     }
+}
+
+test "startup settings reject mixed neighbor modes before communicator creation" {
+    const off: Settings = .{ .world = 4, .streams = 16, .round_rows = 48, .rails = 0, .drafts = 1, .replay_floor = 0, .pool = 1 << 21 };
+    var on = off;
+    on.neighbor_rdma = 1;
+    var buf: [1024]u8 = undefined;
+    try std.testing.expectEqualStrings("", off.differ(off, 1, &buf));
+    try std.testing.expectEqualStrings("", on.differ(on, 1, &buf));
+    try std.testing.expectEqualStrings("rank 1 has TF_DS_NEIGHBOR_RDMA=0 and rank 0 1: set the same on every rank", off.differ(on, 1, &buf));
+    try std.testing.expectEqualStrings("rank 1 has TF_DS_NEIGHBOR_RDMA=1 and rank 0 0: set the same on every rank", on.differ(off, 1, &buf));
 }

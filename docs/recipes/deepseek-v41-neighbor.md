@@ -18,16 +18,20 @@ For each rank, set both comma-separated device lists:
 
 Each list must contain two distinct names; the lists cannot overlap. List rails
 in the same physical order at both ends of each edge (for example, by PCI domain).
-The mode uses RoCE GID index 3 and the existing transport's MTU and queue settings.
+Set `TF_DS_NEIGHBOR_GID_INDEX` to the local RoCE GID table index (decimal 0–255).
+It defaults to 5, matching upstream's rings; sites using GID 3 must explicitly set
+`TF_DS_NEIGHBOR_GID_INDEX=3`. This is separate from NCCL's GID setting and is only
+read when neighbor mode is enabled. The existing MTU and queue settings are retained.
 It does not detect or configure networking. NCCL must also reach adjacent ranks
 and support its ordinary collectives on this fabric.
 
-A one-byte NCCL all-gather at TP4 model startup checks that every rank selected
-the same mode. This check also runs when the mode is off, so a mixed selection
-fails before neighbor setup. It creates no RDMA resources when disabled. Use the
-same binary on every rank; mixing versions with different startup collectives is
-unsupported. Device selection and mode stay fixed for the lifetime of the model
-and its captured graphs.
+The existing startup `Settings` exchange checks each follower’s neighbor mode
+against rank 0 before that follower enters NCCL communicator creation. This is
+the upstream per-follower handshake, not a global rejection broadcast. No separate mode all-gather
+runs, and disabled mode creates no neighbor RDMA resources. Use the same binary
+on every rank: the settings frame now includes the neighbor flag. Device and GID
+selection stay local to each rank; they must describe compatible physical links.
+All settings stay fixed for the lifetime of the model and its captured graphs.
 
 ## Operations
 
@@ -60,10 +64,12 @@ zig build test test-golden -Dcpu=apple_m1
 python3 tools/zig/lean_check.py
 ```
 
-The focused host target checks mode disagreement, bounded dispatch, device-list
+The focused host target checks default-off mode and GID parsing, bounded dispatch, device-list
 validation, relay preconditions, the production NCCL forwarding calls at every
 rank with unequal counts, and local abort propagation. It also compiles the
-GPU/verbs declarations. It does not execute GPU kernels, RDMA traffic, captured
+GPU/verbs declarations. The family host suite checks startup mode disagreement,
+including both directions of mixed enablement over the existing settings link.
+The host tests do not execute GPU kernels, RDMA traffic, captured
 graphs, or a model.
 
 Before hardware acceptance, compare all output bytes with an independent NCCL
@@ -77,3 +83,9 @@ The [consolidated-branch hardware receipt](../receipts/dsv41-neighbor-hardware/R
 records the tested code commit, ring setup, byte/graph/token checks and serving
 measurements. It does not claim a direct comparison with a switched fabric or the
 target branch.
+
+The [v0.2.0 update receipt](../receipts/dsv41-neighbor-v020/README.md) records
+the rebased code checks separately from the historical hardware measurements.
+
+The [v0.2.0 hardware repeat](../receipts/dsv41-neighbor-v020-hardware/README.md)
+records fresh byte/graph/token checks and the same serving workloads on the rebased code.

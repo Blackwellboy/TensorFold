@@ -232,6 +232,11 @@ pub const Model = struct {
         errdefer m.w.deinit();
         if (o.drafts and m.w.dspark == null) return error.NoDrafter;
 
+        const neighbor_rdma = try neighbor.configured();
+        if (neighbor_rdma and o.world != 4) return error.NotFourNodes;
+        if (neighbor_rdma and o.rdma_devices != null) return error.NeighborDisallowsStockRdma;
+        const neighbor_gid = if (neighbor_rdma) try neighbor.gidIndex() else 0;
+
         // the ranks' link and NCCL (rank 0 listens: rank 1 retries its connect while rank 0 loads)
         m.fan = try prompt2d.Fan.open(io, o.master, o.port, o.rank, o.world);
         errdefer m.fan.close();
@@ -244,12 +249,10 @@ pub const Model = struct {
             .drafts = @intFromBool(o.drafts),
             .replay_floor = @intFromBool(prompt.replay_floor),
             .idx_split = @intCast(prompt.split_from),
+            .neighbor_rdma = @intFromBool(neighbor_rdma),
             .pool = o.pool,
         });
         errdefer m.comm.deinit();
-        const neighbor_rdma = try neighbor.configured();
-        try neighbor.agree(&m.comm, m.stream, neighbor_rdma);
-        if (neighbor_rdma and o.rdma_devices != null) return error.NeighborDisallowsStockRdma;
         // TP2: the decode gathers' RDMA ring (both ranks connect before either returns)
         if (sp.pair == null and o.rdma_devices != null) {
             const list = o.rdma_devices.?;
@@ -309,7 +312,7 @@ pub const Model = struct {
             m.two = try prompt2d.Two.init(c, &m.w, &m.arena, sp, chunk_rows);
             if (neighbor_rdma) {
                 m.rdma_mod = try cuda.Module.load(d, cuda.kernels.dsv41_rdma);
-                m.neighbor_gather = try neighbor.Gather.open(gpa, d, try rdma.Kernels.load(m.rdma_mod.?), o.rank, &m.comm, m.stream);
+                m.neighbor_gather = try neighbor.Gather.open(gpa, d, try rdma.Kernels.load(m.rdma_mod.?), o.rank, &m.comm, m.stream, neighbor_gid);
                 m.two.?.neighbor_gather = &m.neighbor_gather.?;
             }
             if (o.rdma_devices) |devs| {

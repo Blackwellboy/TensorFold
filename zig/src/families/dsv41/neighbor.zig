@@ -5,30 +5,26 @@ const rdma = @import("rdma.zig");
 const Comm = @import("comm.zig").Comm;
 pub const cutoff: usize = 512 * 1024;
 pub fn configured() !bool {
-    const raw = std.c.getenv("TF_DS_NEIGHBOR_RDMA") orelse return false;
-    const value = std.mem.span(raw);
+    const raw = std.c.getenv("TF_DS_NEIGHBOR_RDMA");
+    return parseMode(if (raw) |v| std.mem.span(v) else null);
+}
+
+fn parseMode(raw: ?[]const u8) !bool {
+    const value = raw orelse return false;
     if (std.mem.eql(u8, value, "1")) return true;
     if (std.mem.eql(u8, value, "0")) return false;
     return error.BadNeighborMode;
 }
-/// Every TP4 rank agrees before any neighbor queue pair or captured graph is created.
-pub fn agree(comm: *const Comm, stream: cuda.Stream, enabled: bool) !void {
-    if (comm.world != 4) {
-        if (enabled) return error.NotFourNodes;
-        return;
-    }
-    var dev = try cuda.DeviceBuffer.alloc(stream.d, 5);
-    defer dev.free();
-    try dev.upload(0, &.{@intFromBool(enabled)});
-    try comm.allGather(dev.ptr, dev.ptr + 1, 1, .u8, stream);
-    try stream.synchronize();
-    var modes: [4]u8 = undefined;
-    try dev.download(1, &modes);
-    try sameMode(modes);
+pub fn gidIndex() !u8 {
+    const raw = std.c.getenv("TF_DS_NEIGHBOR_GID_INDEX");
+    return parseGid(if (raw) |v| std.mem.span(v) else null);
 }
 
-fn sameMode(modes: [4]u8) !void {
-    for (modes) |mode| if (mode != modes[0]) return error.NeighborModeMismatch;
+fn parseGid(value: ?[]const u8) !u8 {
+    const raw = value orelse return 5;
+    if (raw.len == 0) return error.BadNeighborGid;
+    for (raw) |c| if (c < '0' or c > '9') return error.BadNeighborGid;
+    return std.fmt.parseInt(u8, raw, 10) catch error.BadNeighborGid;
 }
 
 pub fn eligible(bytes: usize) bool {
@@ -40,7 +36,7 @@ pub const Gather = struct {
     scratch: cuda.DeviceBuffer,
 
     /// Each stage uses two rails in matching order at both ends of its physical edge.
-    pub fn open(gpa: std.mem.Allocator, d: *const cuda.Driver, k: rdma.Kernels, g: u32, comm: *const Comm, stream: cuda.Stream) !Gather {
+    pub fn open(gpa: std.mem.Allocator, d: *const cuda.Driver, k: rdma.Kernels, g: u32, comm: *const Comm, stream: cuda.Stream, gid_index: u8) !Gather {
         if (g >= 4 or comm.world != 4) return error.NotFourNodes;
         const first_raw = std.c.getenv("TF_DS_NEIGHBOR_FIRST") orelse return error.NoFirstDevices;
         const second_raw = std.c.getenv("TF_DS_NEIGHBOR_SECOND") orelse return error.NoSecondDevices;
@@ -49,7 +45,7 @@ pub const Gather = struct {
         for (first_devices) |x| for (second_devices) |y| {
             if (std.mem.eql(u8, x, y)) return error.NeighborDevicesOverlap;
         };
-        const s: rdma.Settings = .{ .max_bytes = 2 * cutoff, .gid_index = 3 };
+        const s: rdma.Settings = .{ .max_bytes = 2 * cutoff, .gid_index = gid_index };
         const first = try rdma.Ring.create(gpa, d, k, &first_devices, g % 2, 2, s);
         errdefer first.destroy(gpa);
         const second = try rdma.Ring.create(gpa, d, k, &second_devices, g / 2, 2, s);
@@ -194,14 +190,22 @@ test "neighbor stages produce global rank order and bounded dispatch" {
     try std.testing.expect(!eligible(0));
 }
 
-test "neighbor modes agree before rings open" {
-    try sameMode(.{ 0, 0, 0, 0 });
-    try sameMode(.{ 1, 1, 1, 1 });
-    for (0..4) |g| {
-        var modes: [4]u8 = @splat(0);
-        modes[g] = 1;
-        try std.testing.expectError(error.NeighborModeMismatch, sameMode(modes));
-    }
+test "neighbor mode is off unless explicitly enabled" {
+    try std.testing.expect(!try parseMode(null));
+    try std.testing.expect(!try parseMode("0"));
+    try std.testing.expect(try parseMode("1"));
+    for ([_][]const u8{ "", "2", "true", " 1" }) |bad|
+        try std.testing.expectError(error.BadNeighborMode, parseMode(bad));
+}
+
+test "neighbor GID index accepts site settings and rejects invalid values" {
+    try std.testing.expectEqual(@as(u8, 5), try parseGid(null));
+    try std.testing.expectEqual(@as(u8, 3), try parseGid("3"));
+    try std.testing.expectEqual(@as(u8, 5), try parseGid("5"));
+    try std.testing.expectEqual(@as(u8, 0), try parseGid("0"));
+    try std.testing.expectEqual(@as(u8, 255), try parseGid("255"));
+    for ([_][]const u8{ "", "-1", "+3", "256", "0x3", " 3", "three" }) |bad|
+        try std.testing.expectError(error.BadNeighborGid, parseGid(bad));
 }
 
 test "a stage requires two distinct device names" {
