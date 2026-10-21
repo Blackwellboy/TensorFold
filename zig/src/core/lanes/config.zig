@@ -13,6 +13,7 @@ pub const default_prior = [_]f64{ 0.85, 0.75, 0.7, 0.65, 0.6, 0.55, 0.5, 0.5, 0.
 /// What a backend reports about its loaded model: the attributes the Python engine reads at setup.
 pub const Model = struct {
     solo_head_overhead_ms: ?f64 = null, // fixed overhead for a lone head window; null keeps the live estimate
+    copy_proposals: bool = true, // suffix-lookup copy windows; false opts a backend out
     exact_width: u32 = 1, // the widest window that reproduces one-token steps bit for bit
     first_copy_rows: u32 = 0, // a lone stream's first copy window (0: the exact width)
     gpu_tokens: bool = false, // one-token rounds may run a step ahead (pipelined)
@@ -37,6 +38,7 @@ pub const Model = struct {
 
 pub const Config = struct {
     solo_head_overhead_ms: ?f64 = null, // fixed overhead for a lone head window; null keeps the live estimate
+    copy_proposals: bool = true, // suffix-lookup copy windows; false opts a backend out
     family_width: u32,
     max_copy: u32,
     first_copy: u32,
@@ -122,6 +124,7 @@ pub const Config = struct {
             .lane_costs = try alloc.extendCosts(gpa, m.lane_costs, 64),
             .mtp_step_ms = m.mtp_step_ms,
             .solo_head_overhead_ms = m.solo_head_overhead_ms,
+            .copy_proposals = m.copy_proposals,
         };
     }
 
@@ -156,4 +159,13 @@ test "solo allowance rejects invalid costs before allocating" {
     for ([_]f64{ -1.0, std.math.inf(f64), std.math.nan(f64) }) |cost| {
         try std.testing.expectError(error.BadSoloHeadOverhead, Config.init(std.testing.allocator, .{ .solo_head_overhead_ms = cost }, 8, 7));
     }
+}
+test "copy windows stay on unless a backend opts out" {
+    const a = std.testing.allocator;
+    var original = try Config.init(a, .{}, 8, 7);
+    defer original.deinit(a);
+    try std.testing.expect(original.copy_proposals);
+    var off = try Config.init(a, .{ .copy_proposals = false }, 8, 7);
+    defer off.deinit(a);
+    try std.testing.expect(!off.copy_proposals);
 }

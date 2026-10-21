@@ -321,6 +321,7 @@ pub const Lanes = struct {
     prof: ?Profile = null,
     fix_k: ?usize = null, // a measurement (tf-dsv41-lanes --fix-k): K drafts a stream, chances 1 to K and 0 past it
     solo_overhead: bool = false, // TF_DS_SOLO_OVERHEAD=1: a lone drafted stream's head windows cost the fixed draft allowance
+    no_copies: bool = false, // TF_DS_NO_COPIES=1: a drafted stream proposes no suffix-lookup copy windows
     drawn: [ring]u32 = undefined,
     next: u64 = 0,
     snaps: std.ArrayList(*Snap) = .empty, // kept prompt states, oldest first
@@ -378,6 +379,7 @@ pub const Lanes = struct {
             .window_costs = self.wc[0..],
             .mtp_step_ms = draft.draft_ms,
             .solo_head_overhead_ms = if (drafting and self.solo_overhead) draft.draft_ms else null, // opt-in: the Python engine's fixed draft allowance
+            .copy_proposals = !(drafting and self.no_copies), // opt-in: the draft head proposes; the Python engine makes no copies either
             .streams_exact = true,
             .hidden_rows = true,
             .batch_rows = @intCast(self.m.eng.round_rows),
