@@ -227,7 +227,9 @@ const SpaceEngine = struct {
     fn engine(e: *@This()) api.Engine {
         return .{ .ctx = e, .vtable = &.{ .info = info, .submit = submit, .cancel = HiEngine.cancel, .status = HiEngine.status, .memory = HiEngine.memory } };
     }
-    fn info(_: *anyopaque) api.Info { return .{ .context_window = 4096 }; }
+    fn info(_: *anyopaque) api.Info {
+        return .{ .context_window = 4096 };
+    }
     fn submit(ctx: *anyopaque, id: api.Id, _: *const api.Request, sink: api.Sink) api.SubmitError!void {
         const e: *SpaceEngine = @ptrCast(@alignCast(ctx));
         var tokens: [2048]u32 = undefined;
@@ -278,7 +280,10 @@ fn exerciseSpace(answer: []const u8, expected: []const u8, called: bool, tools: 
     var text: TestText = .{};
     var backend: SpaceEngine = .{ .answer = answer, .chunk_size = chunk_size };
     var srv = try server.Server.init(std.testing.allocator, std.testing.io, backend.engine(), text.text(), .{
-        .served_name = "test-model", .model_ids = &.{"test-model"}, .enable_thinking = false, .use_drafts = false,
+        .served_name = "test-model",
+        .model_ids = &.{"test-model"},
+        .enable_thinking = false,
+        .use_drafts = false,
     }, null);
     defer srv.deinit();
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
