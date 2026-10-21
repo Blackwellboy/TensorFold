@@ -320,6 +320,7 @@ pub const Lanes = struct {
     built: Built = .{},
     prof: ?Profile = null,
     fix_k: ?usize = null, // a measurement (tf-dsv41-lanes --fix-k): K drafts a stream, chances 1 to K and 0 past it
+    solo_overhead: bool = false, // TF_DS_SOLO_OVERHEAD=1: a lone drafted stream's head windows cost the fixed draft allowance
     drawn: [ring]u32 = undefined,
     next: u64 = 0,
     snaps: std.ArrayList(*Snap) = .empty, // kept prompt states, oldest first
@@ -376,7 +377,7 @@ pub const Lanes = struct {
             .drafts = if (self.m.dr) |dr| @intCast(dr.n) else 1,
             .window_costs = self.wc[0..],
             .mtp_step_ms = draft.draft_ms,
-            .solo_head_overhead_ms = if (drafting) draft.draft_ms else null, // the Python engine's fixed draft allowance
+            .solo_head_overhead_ms = if (drafting and self.solo_overhead) draft.draft_ms else null, // opt-in: the Python engine's fixed draft allowance
             .streams_exact = true,
             .hidden_rows = true,
             .batch_rows = @intCast(self.m.eng.round_rows),
