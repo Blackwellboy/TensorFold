@@ -133,7 +133,7 @@ fn headTrunk(e: *Engine, s: *Stream, p: Plan, levels: usize) !?fill.Trunk {
 /// Copied spans backed by `enter_match` matching tokens (Python `_copy_proposal`); the proposer owns them.
 pub fn copyProposal(e: *Engine, s: *Stream) ![]const u32 {
     const p = s.proposer orelse return &.{};
-    if (e.cfg.max_copy == 0 or s.force.items.len > 0) return &.{};
+    if (!copyAllowed(e.cfg.copy_proposals, e.cfg.max_copy, s.force.items.len)) return &.{};
     const width: u32 = if (e.alone) (s.copy_width orelse e.cfg.first_copy) else e.cfg.first_copy;
     const copied = p.propose(s.context.items, @min(@as(i64, width), s.draftRoom() - 1)) catch return &.{};
     if (copied.len < 2 or p.lastMatch() < e.cfg.enter_match) return &.{};
@@ -251,4 +251,14 @@ test "fixed cost excludes shared, copied, forced and unconfigured windows" {
     for ([_]Kind{ .copy, .forced, .fill, .none }) |kind| {
         try std.testing.expectEqual(@as(f64, 8.0), soloHeadOverhead(3.5, 8.0, true, 1, kind));
     }
+}
+// A backend may opt out of suffix-lookup copies; the other gates are unchanged.
+fn copyAllowed(enabled: bool, max_copy: u32, forced: usize) bool {
+    return enabled and max_copy != 0 and forced == 0;
+}
+test "copy opt-out only closes the copy gate" {
+    try std.testing.expect(copyAllowed(true, 5, 0));
+    try std.testing.expect(!copyAllowed(false, 5, 0));
+    try std.testing.expect(!copyAllowed(true, 0, 0));
+    try std.testing.expect(!copyAllowed(true, 5, 2));
 }
