@@ -71,6 +71,8 @@ pub const Snaps = struct {
     save: *const fn (*anyopaque, ?*anyopaque, u32) anyerror!*anyopaque,
     restore: *const fn (*anyopaque, ?*anyopaque, *anyopaque) anyerror!void,
     drop: *const fn (*anyopaque, *anyopaque) void,
+    /// Rows a resumed prompt pass must still run past a kept state (core/prompt_cache Rules.tail).
+    tail: u32 = 0,
 };
 
 /// The rank's model and the backend over it (what `open` hands the server, freed by `deinit`).
@@ -150,7 +152,7 @@ pub fn open(gpa: std.mem.Allocator, io: std.Io, ctx: *const cuda.Context, dir: [
     st.lanes.vision = st.vision;
     // the pool is the model's (preallocated): a stream takes no device memory of its own
     const L = lanes_mod.Lanes;
-    const snaps: Snaps = .{ .ptr = &st.lanes, .bytes = L.snapBytesFn, .save = L.snapSaveFn, .restore = L.snapRestoreFn, .drop = L.snapDropFn };
+    const snaps: Snaps = .{ .ptr = &st.lanes, .bytes = L.snapBytesFn, .save = L.snapSaveFn, .restore = L.snapRestoreFn, .drop = L.snapDropFn, .tail = @intCast(st.m.cfg.window) };
     return .{ .backend = st.lanes.backend(), .facts = st.lanes.facts(), .rows = @intCast(st.m.eng.round_rows), .stream_bytes = 0, .ctx = st, .deinit = deinitFn, .snaps = snaps, .vision = if (st.vision) |v| v.hook() else null };
 }
 
