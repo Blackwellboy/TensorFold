@@ -15,6 +15,7 @@ pub const checkpoint = @import("checkpoint.zig");
 pub const weights = @import("weights.zig");
 pub const engram_io = @import("engram_io.zig");
 pub const engram_aio = @import("engram_aio.zig");
+pub const engram_lead = @import("engram_lead.zig");
 pub const link = @import("link.zig");
 pub const comm = @import("comm.zig");
 pub const tri = @import("tri.zig");
@@ -61,6 +62,7 @@ test {
     refAll(weights);
     refAll(engram_io);
     refAll(engram_aio);
+    refAll(engram_lead);
     refAll(link);
     refAll(comm);
     refAll(tri);

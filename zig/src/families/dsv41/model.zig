@@ -11,6 +11,7 @@ const Config = @import("config.zig").Config;
 const rank_cache = @import("rank_cache.zig");
 const weights = @import("weights.zig");
 const prompt = @import("prompt.zig");
+const engram_lead = @import("engram_lead.zig");
 const prompt2d = @import("prompt2d.zig");
 const round = @import("round.zig");
 const draft = @import("draft.zig");
@@ -107,6 +108,7 @@ pub const Model = struct {
     epool: ?*engram_io.Pool = null,
     aio: ?*engram_aio.Aio = null,
     paio: ?*engram_aio.Aio = null, // the prompt chunks' Engram reads, on a ring of their own
+    paio2: ?*engram_aio.Aio = null, // TF_DS_ENGRAM_LEAD: the second Engram layer's prompt reads, on a ring of their own
     eh: ?prompt.EngramHost = null,
     host_pos: []i64,
     ids64: []i64,
@@ -120,6 +122,8 @@ pub const Model = struct {
     // Engram rows during this one (fillChunk), joined before the prompt can change (joinAhead)
     fill_seq: []const i32 = &.{},
     ahead: ?std.Thread = null,
+    // TF_DS_ENGRAM_LEAD=1: each Engram layer's prompt rows a chunk ahead on its own reader, in place of `ahead`
+    lead: engram_lead.Lead = .{},
     view: prompt.Caches = undefined,
     // the filling prompt's image spans and their rows (setImages; cleared by fillBegin)
     spans: std.ArrayList(prompt.Span) = .empty,
@@ -176,7 +180,11 @@ pub const Model = struct {
         m.epool = null;
         m.aio = null;
         m.paio = null;
+        m.paio2 = null;
         m.eh = null;
+        m.fill_seq = &.{};
+        m.ahead = null;
+        m.lead = .{};
         m.rdma_mod = null;
         m.ring = null;
         m.graphs = null;
@@ -324,6 +332,14 @@ pub const Model = struct {
                 m.paio = try engram_aio.Aio.init(gpa, io, 4096);
                 m.eh.?.paio = m.paio;
             }
+            // TF_DS_ENGRAM_LEAD=1, read on each rank (they need not agree): each Engram layer's prompt reads on a ring
+            if (engram_lead.enabled(if (std.c.getenv("TF_DS_ENGRAM_LEAD")) |v| std.mem.span(v) else null)) {
+                if (m.paio) |ring| {
+                    m.paio2 = try engram_aio.Aio.init(gpa, io, 4096);
+                    try m.eh.?.useLead(a, chunk_rows, .{ ring, m.paio2.? });
+                    std.log.info("engram-lead: on (rank {d}): each Engram layer's prompt rows read a chunk ahead", .{o.rank});
+                } else std.log.warn("engram-lead: off (rank {d}): it needs the Engram AIO (TF_DS_ENGRAM_AIO=1; rank 1: --aio 1)", .{o.rank});
+            }
         } else if (c.engram_layers.slice().len > 0) return error.NoEngramTables;
 
         // a vision checkpoint's image routing bias (without it a prompt with images is refused; text runs as ever)
@@ -358,6 +374,7 @@ pub const Model = struct {
         m.rd.dropPrefetch();
         if (m.aio) |x| x.deinit();
         if (m.paio) |x| x.deinit();
+        if (m.paio2) |x| x.deinit();
         if (m.epool) |p| p.deinit(m.gpa);
         if (m.tables) |*t| t.close();
         if (m.rdma_rings) |*r| r.close(m.gpa);
@@ -434,6 +451,7 @@ pub const Model = struct {
     pub fn joinAhead(m: *Model) void {
         if (m.ahead) |th| th.join();
         m.ahead = null;
+        m.lead.joinAll(); // (TF_DS_ENGRAM_LEAD's readers)
     }
 
     /// A kept prompt state's own bytes (the prompt cache's snapshots; the compressed plane stays in the stream's
@@ -540,6 +558,7 @@ pub const Model = struct {
         if (m.eh) |*eh| { // rows read ahead for another prompt are not this one's, even at the same positions
             eh.ahead_start = std.math.maxInt(usize);
             eh.ahead_ready = .{ false, false };
+            if (eh.lead_on) m.lead.reset(eh);
         }
         m.spans.clearRetainingCapacity();
         m.ch.spans = &.{};
@@ -576,7 +595,12 @@ pub const Model = struct {
         var ahead: ?std.Thread = m.ahead;
         m.ahead = null;
         defer if (ahead) |th| th.join();
-        if (m.eh) |*eh| {
+        if (m.eh) |*eh| ref: {
+            // TF_DS_ENGRAM_LEAD: each layer's rows come from its own reader (engram_lead.zig), not the read-ahead below
+            if (eh.lead_on) {
+                m.lead.begin(eh, c, seq, start, n);
+                break :ref;
+            }
             if (ahead != null and (eh.ahead_start != start or eh.ahead_n != n)) {
                 ahead.?.join();
                 ahead = null;
@@ -612,10 +636,16 @@ pub const Model = struct {
                     ahead = null;
                 }
                 if (eh.ahead_err) |err| return err;
-                try prompt.engramApply(e, ch, eh, li, seq);
                 const j = std.mem.indexOfScalar(u16, c.engram_layers.slice(), @intCast(li)).?;
+                if (eh.lead_on) try m.lead.before(eh, j, start, n); // (TF_DS_ENGRAM_LEAD: this layer's reader)
+                try prompt.engramApply(e, ch, eh, li, seq);
                 const ne = @min(2, c.engram_layers.slice().len);
-                if (j + 1 < ne) {
+                if (eh.lead_on) {
+                    // this layer's rows of the next chunk from now, a whole chunk ahead of their layer
+                    const more = m.fill_seq.len > start + n and m.fill_seq.ptr == seq.ptr;
+                    const nn = if (more) @min(chunk_rows, m.fill_seq.len - start - n) else 0;
+                    m.lead.after(eh, c, seq, start, n, j, if (more) m.fill_seq[0 .. start + n + nn] else null, nn);
+                } else if (j + 1 < ne) {
                     if (!eh.ahead_ready[j + 1])
                         ahead = std.Thread.spawn(.{}, prompt.engramReadAhead, .{ eh, c, seq, start, n, j + 1 }) catch null;
                 } else if (m.fill_seq.len > start + n and m.fill_seq.ptr == seq.ptr) {
