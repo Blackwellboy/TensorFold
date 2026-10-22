@@ -9,6 +9,7 @@ const std = @import("std");
 const cuda = @import("cuda");
 const fabric = @import("fabric");
 const seqs = @import("rdma_seq.zig");
+const env = @import("rdma_env.zig");
 
 const vabi = fabric.verbs_abi;
 const Verbs = fabric.verbs.Verbs;
@@ -27,22 +28,6 @@ const host_register_devicemap = 0x02;
 
 pub const Error = error{ VerbsFailed, PostFailed, BadMtu, BadInfo, TooLarge, Failed, NoHostRegister } || cuda.Error || fabric.verbs.Error || std.posix.MMapError || std.Thread.SpawnError;
 
-/// The served ring has its own GID selection, independent of NCCL's.
-pub fn parseGidIndex(text: ?[]const u8) error{InvalidRdmaGidIndex}!u8 {
-    const value = text orelse return 5;
-    if (value.len == 0) return error.InvalidRdmaGidIndex;
-    for (value) |c| if (c < '0' or c > '9') return error.InvalidRdmaGidIndex;
-    return std.fmt.parseInt(u8, value, 10) catch error.InvalidRdmaGidIndex;
-}
-
-pub fn servedGidIndex() error{InvalidRdmaGidIndex}!u8 {
-    const text = if (std.c.getenv("TF_RDMA_GID_INDEX")) |v| std.mem.span(v) else null;
-    return parseGidIndex(text) catch |err| {
-        std.debug.print("TF_RDMA_GID_INDEX: expected a decimal GID index in 0..255\n", .{});
-        return err;
-    };
-}
-
 /// ibv_mtu is an ordered enum, 1=256 through 5=4096. Both ends use the smaller active MTU.
 fn pathMtu(local: c_int, remote: c_int) error{BadMtu}!c_int {
     if (local < 1 or local > 5 or remote < 1 or remote > 5) return error.BadMtu;
@@ -54,6 +39,7 @@ pub const Settings = struct {
     slots: u32 = 4,
     max_bytes: usize,
     gid_index: u8 = 5,
+    ack_timeout: u8 = env.default_ack_timeout,
     stage_blocks: u32 = 16,
     collect_blocks: u32 = 48,
     collect_grain: u32 = 4,
@@ -316,7 +302,7 @@ pub const Ring = struct {
                 var a: vabi.QpAttr = .{ .qp_state = vabi.qps_rtr, .path_mtu = try pathMtu(n.active_mtu, ri.active_mtu[d]), .dest_qp_num = ri.qpn[d], .rq_psn = ri.psn[d], .max_dest_rd_atomic = 1, .min_rnr_timer = 12 };
                 a.ah_attr = .{ .grh = .{ .dgid = .{ .raw = ri.gid[d] }, .sgid_index = r.s.gid_index, .hop_limit = 64 }, .is_global = 1, .port_num = 1 };
                 if (api.ibv_modify_qp(qp, &a, m.state | m.av | m.path_mtu | m.dest_qpn | m.rq_psn | m.max_dest_rd_atomic | m.min_rnr_timer) != 0) return error.VerbsFailed;
-                a = .{ .qp_state = vabi.qps_rts, .timeout = 14, .retry_cnt = 7, .rnr_retry = 7, .sq_psn = n.psns[p], .max_rd_atomic = 1 };
+                a = .{ .qp_state = vabi.qps_rts, .timeout = r.s.ack_timeout, .retry_cnt = 7, .rnr_retry = 7, .sq_psn = n.psns[p], .max_rd_atomic = 1 };
                 if (api.ibv_modify_qp(qp, &a, m.state | m.timeout | m.retry_cnt | m.rnr_retry | m.sq_psn | m.max_qp_rd_atomic) != 0) return error.VerbsFailed;
             }
         }
@@ -541,14 +527,6 @@ test "the info a peer reads is a plain extern struct (it crosses the link as byt
     try std.testing.expectEqual(@as(usize, 116), @offsetOf(Info, "active_mtu"));
     try std.testing.expectEqual(@as(usize, 136), @offsetOf(Info, "recv"));
 }
-test "served GID defaults to 5 and accepts explicit 3 without silently accepting malformed settings" {
-    try std.testing.expectEqual(@as(u8, 5), try parseGidIndex(null));
-    try std.testing.expectEqual(@as(u8, 3), try parseGidIndex("3"));
-    try std.testing.expectEqual(@as(u8, 0), try parseGidIndex("0"));
-    try std.testing.expectEqual(@as(u8, 255), try parseGidIndex("255"));
-    for ([_][]const u8{ "", "-1", "+3", " 3", "3 ", "0x3", "3_0", "256", "invalid" }) |value|
-        try std.testing.expectError(error.InvalidRdmaGidIndex, parseGidIndex(value));
-}
 test "RDMA MTU negotiation is symmetric for every supported port MTU and rejects invalid metadata" {
     for (1..6) |a| for (1..6) |b| {
         try std.testing.expectEqual(@as(c_int, @intCast(@min(a, b))), try pathMtu(@intCast(a), @intCast(b)));
@@ -563,11 +541,17 @@ test "connect programs the negotiated MTU and configured GID and rejects bad pee
         var calls: usize = 0;
         var mtu: c_int = 0;
         var gid: u8 = 0;
+        var timeout: u8 = 0;
+        var retries: u8 = 0;
         fn modify(_: *vabi.Qp, attr: *vabi.QpAttr, _: c_int) callconv(.c) c_int {
             calls += 1;
             if (attr.qp_state == vabi.qps_rtr) {
                 mtu = attr.path_mtu;
                 gid = attr.ah_attr.grh.sgid_index;
+            }
+            if (attr.qp_state == vabi.qps_rts) {
+                timeout = attr.timeout;
+                retries = attr.retry_cnt;
             }
             return 0;
         }
@@ -592,7 +576,13 @@ test "connect programs the negotiated MTU and configured GID and rejects bad pee
         try std.testing.expectEqual(@as(usize, 2), Probe.calls);
         try std.testing.expectEqual(@min(mtus[0], mtus[1]), Probe.mtu);
         try std.testing.expectEqual(@as(u8, 3), Probe.gid);
+        try std.testing.expectEqual(@as(u8, 14), Probe.timeout);
+        try std.testing.expectEqual(@as(u8, 7), Probe.retries);
     }
+    r.s.ack_timeout = 20; // TF_RDMA_TIMEOUT=20
+    try r.connect(&peers);
+    try std.testing.expectEqual(@as(u8, 20), Probe.timeout);
+    try std.testing.expectEqual(@as(u8, 7), Probe.retries);
     Probe.calls = 0;
     peers[1].active_mtu[0] = 0;
     try std.testing.expectError(error.BadMtu, r.connect(&peers));
