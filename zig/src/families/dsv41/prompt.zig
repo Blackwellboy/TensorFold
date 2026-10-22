@@ -1101,6 +1101,15 @@ pub const EngramHost = struct {
     ahead_start: usize = 0,
     ahead_n: usize = 0,
     ahead_err: ?anyerror = null,
+    // TF_DS_ENGRAM_LEAD=1 (engram_lead.zig): layer j's rows of the chunk at lead_start[j] in ahead_rows[j], on ring j
+    lead_on: bool = false,
+    lead_ring: [2]?*engram_aio.Aio = .{ null, null },
+    lead_hashes: [2][]i64 = .{ &.{}, &.{} },
+    lead_start: [2]usize = .{ std.math.maxInt(usize), std.math.maxInt(usize) },
+    lead_n: [2]usize = .{ 0, 0 },
+    lead_ready: [2]bool = .{ false, false },
+    lead_err: [2]?anyerror = .{ null, null },
+    lead_late: u64 = 0, // reads that started at their own chunk, with no lead
     // a profile's prompt Engram split (ns summed, the stream synchronized at each cut): the rows ready on the host,
     // their upload, the projection, the quarters' exchange, the sum and gate
     p_rows: u64 = 0,
@@ -1144,6 +1153,13 @@ pub const EngramHost = struct {
             .rows = try gpa.alloc(u16, cap * k * t.row_w),
         };
     }
+
+    /// TF_DS_ENGRAM_LEAD: each Engram layer's prompt reader gets a hash buffer of its own and its ring, rings[j].
+    pub fn useLead(eh: *EngramHost, gpa: std.mem.Allocator, cap: usize, rings: [2]*engram_aio.Aio) !void {
+        for (&eh.lead_hashes) |*h| h.* = try gpa.alloc(i64, cap * eh.hasher.layers * eh.hasher.cols());
+        eh.lead_ring = .{ rings[0], rings[1] };
+        eh.lead_on = true;
+    }
 };
 
 /// A prompt chunk's Engram layer j rows ahead of its layer, on a thread of the caller's while the GPU runs the layers
@@ -1181,6 +1197,32 @@ fn engramAhead1(eh: *EngramHost, c: *const Config, seq: []const i32, start: usiz
     eh.ahead_ready[j] = true;
 }
 
+/// Layer slot l's decoded rows of chunk [start, start + n) (engramApply's host part): read ahead if ready, else here.
+pub fn engramRows(eh: *EngramHost, l: usize, t: engram_io.Table, seq: []const i32, start: usize, n: usize) ![]u16 {
+    const cols = eh.hasher.cols();
+    const k = eh.hi - eh.lo;
+    const m = n * k;
+    const lead = eh.lead_on and l < 2;
+    if (lead) {
+        if (eh.lead_ready[l] and eh.lead_start[l] == start and eh.lead_n[l] == n) {
+            eh.lead_ready[l] = false;
+            return eh.ahead_rows[l];
+        }
+    } else if (l < 2 and eh.ahead_ready[l] and eh.ahead_start == start and eh.ahead_n == n) {
+        eh.ahead_ready[l] = false;
+        return eh.ahead_rows[l];
+    }
+    eh.hasher.hashes(seq, start, n, eh.hashes[0 .. n * eh.hasher.layers * cols]);
+    for (0..n) |r| {
+        for (0..k) |j| eh.flat[r * k + j] = eh.hashes[(r * eh.hasher.layers + l) * cols + eh.lo + j];
+    }
+    // (TF_DS_ENGRAM_LEAD: on this layer's ring, its reader joined; the other layer's may be reading on its own)
+    const ring = if (lead) eh.lead_ring[l] else eh.paio;
+    if (ring) |aio| try aioGather(aio, t, eh.flat[0..m], eh.w[0 .. m * t.row_w], eh.s[0 .. m * t.row_s]) else try eh.pool.gather(t, eh.flat[0..m], eh.w[0 .. m * t.row_w], eh.s[0 .. m * t.row_s]);
+    engram.decodeRows(eh.w[0 .. m * t.row_w], eh.s[0 .. m * t.row_s], eh.rows[0 .. m * t.row_w], m, t.row_w, t.row_s, 8); // the rows on 8 threads
+    return eh.rows[0 .. m * t.row_w];
+}
+
 /// Layer li's Engram on the chunk (engram_apply, no image span), as _forward_k runs it before the attention mixes: a
 /// pending MoE post into the streams first (hc_post), then the rows of each position's n-grams (hashed on the host from
 /// `seq`, the whole sequence's ids so far; read from the tables; decoded to bf16 as Engram._decode does), their
@@ -1197,24 +1239,12 @@ pub fn engramApply(e: *const Engine, ch: *Chunk, eh: *EngramHost, li: usize, seq
     const li32: u16 = @intCast(li);
     const l = std.mem.indexOfScalar(u16, c.engram_layers.slice(), li32) orelse return error.NotAnEngramLayer;
     const t = eh.tables.layers.get(@intCast(li)) orelse return error.MissingEngramTable;
-    const cols = eh.hasher.cols();
     const k = eh.hi - eh.lo;
     const m = n * k;
     const prof = eh.io != null;
     var tq = if (prof) pstamp(e, eh) else 0;
     // the rows read ahead (fillChunk's thread) when they are this chunk's, else read here
-    var rows: []u16 = eh.rows;
-    if (l < 2 and eh.ahead_ready[l] and eh.ahead_start == ch.start and eh.ahead_n == n) {
-        rows = eh.ahead_rows[l];
-        eh.ahead_ready[l] = false;
-    } else {
-        eh.hasher.hashes(seq, ch.start, n, eh.hashes[0 .. n * eh.hasher.layers * cols]);
-        for (0..n) |r| {
-            for (0..k) |j| eh.flat[r * k + j] = eh.hashes[(r * eh.hasher.layers + l) * cols + eh.lo + j];
-        }
-        if (eh.paio) |aio| try aioGather(aio, t, eh.flat[0..m], eh.w[0 .. m * t.row_w], eh.s[0 .. m * t.row_s]) else try eh.pool.gather(t, eh.flat[0..m], eh.w[0 .. m * t.row_w], eh.s[0 .. m * t.row_s]);
-        engram.decodeRows(eh.w[0 .. m * t.row_w], eh.s[0 .. m * t.row_s], eh.rows[0 .. m * t.row_w], m, t.row_w, t.row_s, 8); // the rows on 8 threads
-    }
+    const rows = try engramRows(eh, l, t, seq, ch.start, n);
     if (m * t.row_w != n * ew.k) return error.EngramShape;
     if (prof) eh.p_rows += lap(e, eh, &tq);
     try upload(e, ch.eb, rows.ptr, m * t.row_w * 2);
@@ -1263,7 +1293,7 @@ fn lap(e: *const Engine, eh: *const EngramHost, t: *u64) u64 {
 /// A chunk's rows `ids` of table `t` by AIO (the pool's bytes, at ~0.07 s for 24,576 rows where the pool's preads take
 /// ~0.5 s on one GB10): batches of a quarter of the ring's slots (two reads a row), all submitted (a submit reaps while the
 /// ring is full), then waited for in order.
-fn aioGather(aio: *engram_aio.Aio, t: engram_io.Table, ids: []const i64, out_w: []u8, out_s: []u8) !void {
+pub fn aioGather(aio: *engram_aio.Aio, t: engram_io.Table, ids: []const i64, out_w: []u8, out_s: []u8) !void {
     const per = @max(aio.slots / 4, 1);
     var batch: [64]u64 = undefined;
     var nb: usize = 0;
