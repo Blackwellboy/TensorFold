@@ -36,6 +36,7 @@ pub const prompt = @import("prompt.zig");
 pub const exact = @import("exact.zig");
 pub const rdma_seq = @import("rdma_seq.zig");
 pub const rdma = @import("rdma.zig");
+pub const rdma_env = @import("rdma_env.zig");
 pub const exl3_experts2d = @import("exl3_experts2d.zig");
 pub const exl3_experts2d_rec = @import("exl3_experts2d_rec.zig");
 pub const prompt2d = @import("prompt2d.zig");
@@ -83,6 +84,7 @@ test {
     refAll(exact);
     refAll(rdma_seq);
     refAll(rdma);
+    refAll(rdma_env);
     refAll(exl3_experts2d);
     refAll(exl3_experts2d_rec);
     refAll(prompt2d);
